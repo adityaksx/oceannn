@@ -6,29 +6,30 @@
 <title>SOLVX — 3D Ocean Explorer</title>
 <link rel="stylesheet" href="styles.css">
 <style>
-  #renderCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
-  #loading.hide{display:none!important}
-  #fatal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:100;display:none;max-width:min(760px,90vw);padding:18px 22px;border-radius:14px;background:#fff;border:1px solid #c5d5dc;box-shadow:0 18px 60px rgba(0,0,0,.16);font:13px/1.5 system-ui,sans-serif;color:#17323a}
-  #fatal b{display:block;margin-bottom:6px}
+#renderCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+#loading.hide{display:none!important}
+#fatal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:100;display:none;max-width:min(760px,90vw);padding:18px 22px;border-radius:14px;background:#fff;border:1px solid #c5d5dc;box-shadow:0 18px 60px rgba(0,0,0,.16);font:13px/1.5 system-ui,sans-serif;color:#17323a}
+#fatal b{display:block;margin-bottom:6px}
 </style>
 </head>
 <body>
 <div id="app">
-  <canvas id="renderCanvas" touch-action="none"></canvas>
-  <div id="loading"><div class="load"><b>SOLVX</b><div>PREPARING 3D OCEAN</div></div></div>
-  <div id="fatal"><b>3D viewer failed to initialize</b><span id="fatalText"></span></div>
-  <div id="brand" class="ui"><b>SOLVX</b><small>INTERACTIVE 3D OCEAN EXPLORER</small></div>
-  <div id="hint" class="ui">Left drag: orbit · Right drag: pan · Scroll: zoom</div>
-  <div id="toolbar" class="ui"><button class="btn active" data-view="3d">3D</button><button class="btn" data-view="top">TOP</button><button class="btn profile" data-view="profile">PROFILE</button><button class="btn under" data-view="under">UNDER</button><button class="btn" id="reset">RESET</button><button class="btn" id="fullscreen">FULL</button></div>
-  <div id="panel" class="ui">
-    <div class="section"><div class="title">3D ocean base</div><div class="sub">Natural Earth provides the land surface. GEBCO is used only for seabed relief. Babylon.js renders the scene without an ES-module import map.</div></div>
-    <div class="section"><div class="title">Seabed relief</div><div class="row"><input id="exaggeration" type="range" min="10" max="100" value="55"><span id="exagValue" class="value">55×</span></div></div>
-    <div class="section"><div class="statusline"><i id="statusDot" class="statusdot"></i><div id="status">Loading geometry…</div></div></div>
-  </div>
-  <div id="readout" class="ui"><div class="rhead"><div><div class="rtitle">Ocean point</div><div id="coords" class="coords">—</div></div><button id="closeReadout" class="close">×</button></div><div id="readoutGrid" class="grid"></div><div id="readoutTime" class="rtime">—</div></div>
-  <div id="depthBadge">Surface</div>
+<canvas id="renderCanvas" touch-action="none"></canvas>
+<div id="loading"><div class="load"><b>SOLVX</b><div>PREPARING 3D OCEAN</div></div></div>
+<div id="fatal"><b>3D viewer failed to initialize</b><span id="fatalText"></span></div>
+<div id="brand" class="ui"><b>SOLVX</b><small>INTERACTIVE 3D OCEAN EXPLORER</small></div>
+<div id="hint" class="ui">Left drag: orbit · Right drag: pan · Scroll: zoom</div>
+<div id="toolbar" class="ui"><button class="btn active" data-view="3d">3D</button><button class="btn" data-view="top">TOP</button><button class="btn" data-view="profile">PROFILE</button><button class="btn" data-view="under">UNDER</button><button class="btn" id="reset">RESET</button><button class="btn" id="fullscreen">FULL</button></div>
+<div id="panel" class="ui">
+<div class="section"><div class="title">3D ocean base</div><div class="sub">GEBCO seabed + solid green land + physical Babylon water surface + layered ocean volume.</div></div>
+<div class="section"><div class="title">Vertical exaggeration</div><div class="row"><input id="exaggeration" type="range" min="4" max="30" value="10"><span id="exagValue" class="value">10×</span></div></div>
+<div class="section"><div class="statusline"><i id="statusDot" class="statusdot"></i><div id="status">Loading geometry…</div></div></div>
+</div>
+<div id="readout" class="ui"><div class="rhead"><div><div class="rtitle">Ocean point</div><div id="coords" class="coords">—</div></div><button id="closeReadout" class="close">×</button></div><div id="readoutGrid" class="grid"></div><div id="readoutTime" class="rtime">—</div></div>
+<div id="depthBadge">Surface</div>
 </div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
 <script src="babylon-ocean.js"></script>
 </body>
 </html>
