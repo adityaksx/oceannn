@@ -27,7 +27,7 @@ def crop(g):
 def xy(lon,lat):
  klat=111.32;klon=111.32*np.cos(np.deg2rad((SOUTH+NORTH)/2));return (np.asarray(lon)-(WEST+EAST)/2)*klon,(np.asarray(lat)-(SOUTH+NORTH)/2)*klat
 def ring(r):return [[float(x),float(y)] for lon,lat,*_ in r.coords for x,y in [xy(lon,lat)]]
-def polygons(gdf):
+def polygons(gdf,limit=MAX_LAND_TRIANGLES):
  out=[];count=0
  for geom in gdf.geometry:
   if geom is None or geom.is_empty:continue
@@ -35,15 +35,15 @@ def polygons(gdf):
   for p in ps:
    top=ring(p.exterior);verts=[];inds=[]
    for tri in triangulate(p):
-    if count>=MAX_LAND_TRIANGLES:break
+    if count>=limit:break
     if not p.covers(tri):continue
     base=len(verts)
     for lon,lat in list(tri.exterior.coords)[:3]:
      x,y=xy(lon,lat);verts.append([float(x),float(y)])
     inds.append([base,base+1,base+2]);count+=1
-   if inds: out.append({'top':top,'vertices':verts,'triangles':inds})
-   if count>=MAX_LAND_TRIANGLES:break
-  if count>=MAX_LAND_TRIANGLES:break
+   if inds:out.append({'top':top,'vertices':verts,'triangles':inds})
+   if count>=limit:break
+  if count>=limit:break
  return out
 def lines(gdf):
  out=[]
@@ -106,10 +106,8 @@ def prepare(data_dir):
   if 'SOVEREIGN1' in eez.columns:
    x=eez[eez.SOVEREIGN1.isin({'India','Bangladesh','Myanmar'})]
    if not x.empty:eez=x
-  # Build the actual ocean footprint from the Natural Earth land polygons.
-  # This prevents the water surface/layers from covering the green land.
   region=box(WEST,SOUTH,EAST,NORTH)
   ocean_geom=region.difference(unary_union(list(land.geometry)))
   ocean_gdf=gpd.GeoDataFrame(geometry=[ocean_geom],crs='EPSG:4326')
   x,y,raw,md=bathy(first(q['gebco'],'*.nc'));ep=lines(eez)
-  return {'bounds':[WEST,EAST,SOUTH,NORTH],'terrain':{'x':x,'y':y,'rawDepthKm':raw,'maxDepthKm':md},'land':polygons(land),'islands':polygons(islands),'ocean':polygons(ocean_gdf),'coast':lines(coast),'landBoundary':lines(land),'islandCoast':lines(islands),'eez':ep,'eezBeads':beads(ep),'temperatureDepthsM':temperature_depths(d),'landThickness':LAND_THICKNESS_KM,'baseExtra':BASE_EXTRA_KM}
+  return {'bounds':[WEST,EAST,SOUTH,NORTH],'terrain':{'x':x,'y':y,'rawDepthKm':raw,'maxDepthKm':md},'land':polygons(land),'islands':polygons(islands),'ocean':polygons(ocean_gdf,8000),'coast':lines(coast),'landBoundary':lines(land),'islandCoast':lines(islands),'eez':ep,'eezBeads':beads(ep),'temperatureDepthsM':temperature_depths(d),'landThickness':LAND_THICKNESS_KM,'baseExtra':BASE_EXTRA_KM}
