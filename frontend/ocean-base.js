@@ -61,21 +61,26 @@ function addSeabed() {
   const t = geometryData.terrain;
   const x = t.x, y = t.y, raw = t.rawDepthKm;
   const nx = x.length, ny = y.length;
+  if (!nx || !ny) throw new Error('Terrain grid is empty');
+
   const positions = new Float32Array(nx * ny * 3);
   const indices = [];
 
   for (let j = 0; j < ny; j++) {
+    const row = raw[j] || [];
     for (let i = 0; i < nx; i++) {
       const k = j * nx + i;
       positions[3*k] = x[i];
       positions[3*k+1] = y[j];
-      positions[3*k+2] = finite(raw?.[j]?.[i]) ? -raw[j][i] * depthExaggeration : -2;
+      const value = row[i];
+      positions[3*k+2] = finite(value) ? -value * depthExaggeration : -2;
     }
   }
 
   for (let j = 0; j < ny-1; j++) {
+    const r0 = raw[j] || [], r1 = raw[j+1] || [];
     for (let i = 0; i < nx-1; i++) {
-      const q = [raw?.[j]?.[i], raw?.[j]?.[i+1], raw?.[j+1]?.[i], raw?.[j+1]?.[i+1]];
+      const q = [r0[i], r0[i+1], r1[i], r1[i+1]];
       if (!q.every(finite)) continue;
       const a = j*nx+i, b = a+1, c = a+nx, d = c+1;
       indices.push(a,c,b,b,c,d);
@@ -95,8 +100,8 @@ function addSeabed() {
 }
 
 function addWater(minX, maxX, minY, maxY) {
-  const width = maxX - minX;
-  const height = maxY - minY;
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
   const surface = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshPhysicalMaterial({
@@ -132,9 +137,12 @@ function addWater(minX, maxX, minY, maxY) {
 }
 
 function addLand() {
+  // data.py returns land/islands directly as arrays of polygon objects.
+  // Older frontend code incorrectly expected {polygons:[...]}, which silently
+  // produced an empty land layer.
   const polygons = [
-    ...(geometryData.land?.polygons || []),
-    ...(geometryData.islands?.polygons || [])
+    ...(Array.isArray(geometryData.land) ? geometryData.land : geometryData.land?.polygons || []),
+    ...(Array.isArray(geometryData.islands) ? geometryData.islands : geometryData.islands?.polygons || [])
   ];
 
   const positions = [];
@@ -143,7 +151,7 @@ function addLand() {
   let rendered = 0;
 
   for (const p of polygons) {
-    if (!Array.isArray(p.vertices) || !Array.isArray(p.triangles)) continue;
+    if (!Array.isArray(p?.vertices) || !Array.isArray(p?.triangles)) continue;
     if (p.vertices.length < 3 || p.triangles.length === 0) continue;
 
     for (const q of p.vertices) {
@@ -183,7 +191,6 @@ function addLand() {
   const mesh = new THREE.Mesh(g, material);
   mesh.renderOrder = 100;
   landGroup.add(mesh);
-
   return rendered;
 }
 
@@ -209,17 +216,18 @@ function buildScene() {
     throw new Error('geometry.json has invalid terrain data');
   }
 
-  const minX = Math.min(...t.x);
-  const maxX = Math.max(...t.x);
-  const minY = Math.min(...t.y);
-  const maxY = Math.max(...t.y);
+  // Do not use Math.min(...array): a GEBCO grid can contain tens of thousands
+  // of values and spreading it into a function call can exceed JS argument limits.
+  const minX = Math.min.apply(null, t.x);
+  const maxX = Math.max.apply(null, t.x);
+  const minY = Math.min.apply(null, t.y);
+  const maxY = Math.max.apply(null, t.y);
   center = {
     x: (minX + maxX) / 2,
     y: (minY + maxY) / 2,
     size: Math.max(maxX - minX, maxY - minY)
   };
 
-  // Clear any partial scene if initialization is retried.
   for (const group of [seabedGroup, waterGroup, landGroup, coastGroup, eezGroup]) {
     group.clear();
   }
@@ -248,8 +256,9 @@ function updateDepth() {
   const ny = geometryData.terrain.y.length;
 
   for (let j = 0; j < ny; j++) {
+    const row = raw[j] || [];
     for (let i = 0; i < nx; i++) {
-      const v = raw?.[j]?.[i];
+      const v = row[i];
       a.setZ(j * nx + i, finite(v) ? -v * depthExaggeration : -2);
     }
   }
