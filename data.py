@@ -3,7 +3,7 @@ import tempfile,zipfile
 from pathlib import Path
 import geopandas as gpd,numpy as np,xarray as xr
 from shapely.geometry import Polygon,MultiPolygon,box
-from shapely.ops import triangulate
+from shapely.ops import triangulate,unary_union
 try: from .config import *
 except ImportError: from config import *
 
@@ -36,14 +36,12 @@ def polygons(gdf):
    top=ring(p.exterior);verts=[];inds=[]
    for tri in triangulate(p):
     if count>=MAX_LAND_TRIANGLES:break
-    # Keep the complete triangle inside the Natural Earth polygon.
-    # Checking only the representative point can create large false land slabs.
     if not p.covers(tri):continue
     base=len(verts)
     for lon,lat in list(tri.exterior.coords)[:3]:
      x,y=xy(lon,lat);verts.append([float(x),float(y)])
     inds.append([base,base+1,base+2]);count+=1
-   out.append({'top':top,'vertices':verts,'triangles':inds})
+   if inds: out.append({'top':top,'vertices':verts,'triangles':inds})
    if count>=MAX_LAND_TRIANGLES:break
   if count>=MAX_LAND_TRIANGLES:break
  return out
@@ -78,33 +76,24 @@ def bathy(nc):
  xx,yy=xy(lon,lat);return xx.tolist(),yy.tolist(),dep_json,float(np.nanmax(dep))
 
 def temperature_depths(data_dir):
- """Read the vertical levels from data/model/temperature.nc.
-
-    The renderer uses these levels to build the same number of horizontal ocean
-    strata instead of hard-coding four or five arbitrary depths.
-    """
  p=Path(data_dir)/'model'/'temperature.nc'
- if not p.exists(): return []
+ if not p.exists():return []
  ds=xr.open_dataset(p,decode_times=False)
  try:
   candidates=['depth','deptht','depthu','depthv','depthw','lev','level','z','depths']
   name=next((n for n in candidates if n in ds.coords or n in ds.variables),None)
   if name is None:
-   for n in ds.coords:
-    if 'depth' in n.lower() or n.lower() in {'lev','level','z'}: name=n; break
-  if name is None:
-   for n in ds.dims:
-    if 'depth' in n.lower() or n.lower() in {'lev','level','z'}: name=n; break
-  if name is None: return []
+   for n in list(ds.coords)+list(ds.dims):
+    if 'depth' in n.lower() or n.lower() in {'lev','level','z'}:name=n;break
+  if name is None:return []
   arr=np.asarray(ds[name].values).squeeze()
-  if arr.ndim!=1: return []
+  if arr.ndim!=1:return []
   vals=[]
   for value in arr:
    try:v=float(value)
    except (TypeError,ValueError):continue
    if np.isfinite(v):vals.append(abs(v))
-  vals=sorted(set(vals))
-  units=str(getattr(ds[name],'units','')).lower()
+  vals=sorted(set(vals));units=str(getattr(ds[name],'units','')).lower()
   if 'cm' in units and 'm' not in units:vals=[v/100 for v in vals]
   elif 'km' in units:vals=[v*1000 for v in vals]
   return vals
@@ -117,5 +106,10 @@ def prepare(data_dir):
   if 'SOVEREIGN1' in eez.columns:
    x=eez[eez.SOVEREIGN1.isin({'India','Bangladesh','Myanmar'})]
    if not x.empty:eez=x
+  # Build the actual ocean footprint from the Natural Earth land polygons.
+  # This prevents the water surface/layers from covering the green land.
+  region=box(WEST,SOUTH,EAST,NORTH)
+  ocean_geom=region.difference(unary_union(list(land.geometry)))
+  ocean_gdf=gpd.GeoDataFrame(geometry=[ocean_geom],crs='EPSG:4326')
   x,y,raw,md=bathy(first(q['gebco'],'*.nc'));ep=lines(eez)
-  return {'bounds':[WEST,EAST,SOUTH,NORTH],'terrain':{'x':x,'y':y,'rawDepthKm':raw,'maxDepthKm':md},'land':polygons(land),'islands':polygons(islands),'coast':lines(coast),'landBoundary':lines(land),'islandCoast':lines(islands),'eez':ep,'eezBeads':beads(ep),'temperatureDepthsM':temperature_depths(d),'landThickness':LAND_THICKNESS_KM,'baseExtra':BASE_EXTRA_KM}
+  return {'bounds':[WEST,EAST,SOUTH,NORTH],'terrain':{'x':x,'y':y,'rawDepthKm':raw,'maxDepthKm':md},'land':polygons(land),'islands':polygons(islands),'ocean':polygons(ocean_gdf),'coast':lines(coast),'landBoundary':lines(land),'islandCoast':lines(islands),'eez':ep,'eezBeads':beads(ep),'temperatureDepthsM':temperature_depths(d),'landThickness':LAND_THICKNESS_KM,'baseExtra':BASE_EXTRA_KM}
