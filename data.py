@@ -36,7 +36,9 @@ def polygons(gdf):
    top=ring(p.exterior);verts=[];inds=[]
    for tri in triangulate(p):
     if count>=MAX_LAND_TRIANGLES:break
-    if not p.covers(tri.representative_point()):continue
+    # Keep the complete triangle inside the Natural Earth polygon.
+    # Checking only the representative point can create large false land slabs.
+    if not p.covers(tri):continue
     base=len(verts)
     for lon,lat in list(tri.exterior.coords)[:3]:
      x,y=xy(lon,lat);verts.append([float(x),float(y)])
@@ -98,16 +100,15 @@ def temperature_depths(data_dir):
   if arr.ndim!=1: return []
   vals=[]
   for value in arr:
-   try:
-    v=float(value)
-   except (TypeError,ValueError): continue
-   if np.isfinite(v): vals.append(abs(v))
+   try:v=float(value)
+   except (TypeError,ValueError):continue
+   if np.isfinite(v):vals.append(abs(v))
   vals=sorted(set(vals))
   units=str(getattr(ds[name],'units','')).lower()
-  if 'cm' in units and 'm' not in units: vals=[v/100 for v in vals]
-  elif 'km' in units: vals=[v*1000 for v in vals]
+  if 'cm' in units and 'm' not in units:vals=[v/100 for v in vals]
+  elif 'km' in units:vals=[v*1000 for v in vals]
   return vals
- finally: ds.close()
+ finally:ds.close()
 
 def prepare(data_dir):
  d=Path(data_dir);z={'coast':find_zip(d,'ne_10m_coastline.zip','coastline'),'land':find_zip(d,'ne_10m_land.zip','ne_10m_land'),'islands':find_zip(d,'ne_10m_minor_islands.zip','minor_islands'),'eez':find_zip(d,'World_EEZ_v12_20231025_LR.zip','World_EEZ'),'gebco':find_zip(d,'GEBCO_10_Sep_2026_c6ae0e7b7408.zip','GEBCO')}
