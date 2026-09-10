@@ -69,13 +69,13 @@ function addSeabed() {
       const k = j * nx + i;
       positions[3*k] = x[i];
       positions[3*k+1] = y[j];
-      positions[3*k+2] = finite(raw[j][i]) ? -raw[j][i] * depthExaggeration : -2;
+      positions[3*k+2] = finite(raw?.[j]?.[i]) ? -raw[j][i] * depthExaggeration : -2;
     }
   }
 
   for (let j = 0; j < ny-1; j++) {
     for (let i = 0; i < nx-1; i++) {
-      const q = [raw[j][i], raw[j][i+1], raw[j+1][i], raw[j+1][i+1]];
+      const q = [raw?.[j]?.[i], raw?.[j]?.[i+1], raw?.[j+1]?.[i], raw?.[j+1]?.[i+1]];
       if (!q.every(finite)) continue;
       const a = j*nx+i, b = a+1, c = a+nx, d = c+1;
       indices.push(a,c,b,b,c,d);
@@ -114,7 +114,6 @@ function addWater(minX, maxX, minY, maxY) {
   surface.renderOrder = 5;
   waterGroup.add(surface);
 
-  // A few inexpensive transparent planes give the ocean real volume.
   for (let i = 1; i <= 7; i++) {
     const slice = new THREE.Mesh(
       new THREE.PlaneGeometry(width, height),
@@ -132,10 +131,6 @@ function addWater(minX, maxX, minY, maxY) {
   }
 }
 
-// IMPORTANT: do not create one ExtrudeGeometry/ShapeGeometry per polygon.
-// Natural Earth contains many vertices; doing that blocks the browser for a
-// long time. The backend already gives us triangulated land, so merge it into
-// ONE GPU mesh instead.
 function addLand() {
   const polygons = [
     ...(geometryData.land?.polygons || []),
@@ -158,11 +153,10 @@ function addLand() {
 
     for (const tri of p.triangles) {
       if (!Array.isArray(tri) || tri.length < 3) continue;
-      indices.push(
-        vertexOffset + (+tri[0]),
-        vertexOffset + (+tri[1]),
-        vertexOffset + (+tri[2])
-      );
+      const a = Number(tri[0]), b = Number(tri[1]), c = Number(tri[2]);
+      if (![a,b,c].every(Number.isInteger)) continue;
+      if (a < 0 || b < 0 || c < 0 || a >= p.vertices.length || b >= p.vertices.length || c >= p.vertices.length) continue;
+      indices.push(vertexOffset + a, vertexOffset + b, vertexOffset + c);
     }
 
     vertexOffset += p.vertices.length;
@@ -210,7 +204,11 @@ function addLines(group, parts, z, color, order) {
 }
 
 function buildScene() {
-  const t = geometryData.terrain;
+  const t = geometryData?.terrain;
+  if (!t || !Array.isArray(t.x) || !Array.isArray(t.y) || !Array.isArray(t.rawDepthKm)) {
+    throw new Error('geometry.json has invalid terrain data');
+  }
+
   const minX = Math.min(...t.x);
   const maxX = Math.max(...t.x);
   const minY = Math.min(...t.y);
@@ -220,6 +218,11 @@ function buildScene() {
     y: (minY + maxY) / 2,
     size: Math.max(maxX - minX, maxY - minY)
   };
+
+  // Clear any partial scene if initialization is retried.
+  for (const group of [seabedGroup, waterGroup, landGroup, coastGroup, eezGroup]) {
+    group.clear();
+  }
 
   addSeabed();
   addWater(minX, maxX, minY, maxY);
@@ -246,7 +249,7 @@ function updateDepth() {
 
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
-      const v = raw[j][i];
+      const v = raw?.[j]?.[i];
       a.setZ(j * nx + i, finite(v) ? -v * depthExaggeration : -2);
     }
   }
@@ -283,13 +286,12 @@ for (const button of document.querySelectorAll('[data-view]')) {
 async function init() {
   try {
     status('Loading geometry.json…', 'busy');
-    geometryData = await fetch(`geometry.json?${Date.now()}`).then(r => {
-      if (!r.ok) throw Error(`${r.status} ${r.statusText}`);
-      return r.json();
-    });
+    const response = await fetch(`geometry.json?${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    geometryData = await response.json();
     buildScene();
   } catch (error) {
-    console.error(error);
+    console.error('SolvX initialization failed:', error);
     status(`3D geometry failed: ${error.message}`, 'error');
     $('loading')?.classList.add('hide');
   }
