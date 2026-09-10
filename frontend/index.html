@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SOLVX - 3D Ocean Explorer</title>
-<link rel="stylesheet" href="styles.css?v=20260911-fields3">
+<link rel="stylesheet" href="styles.css?v=20260911-fields4">
 <style>
 #renderCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
 #loading.hide{display:none!important}
@@ -21,7 +21,7 @@
 <div id="hint" class="ui">Left drag: orbit - Right drag: pan - Scroll: zoom</div>
 <div id="toolbar" class="ui"><button class="btn active" data-view="3d">3D</button><button class="btn" data-view="top">TOP</button><button class="btn" data-view="profile">PROFILE</button><button class="btn" data-view="under">UNDER</button><button class="btn" id="reset">RESET</button><button class="btn" id="fullscreen">FULL</button></div>
 <div id="panel" class="ui">
-<div class="section"><div class="title">Ocean variables</div><div class="sub">Select a live field. Colors are stretched to the measured data distribution at the selected time and depth.</div><div id="vars" class="vars"></div></div>
+<div class="section"><div class="title">Ocean variables</div><div class="sub">Measured variables are rendered as high-contrast adaptive data fields. Currents use moving direction vectors.</div><div id="vars" class="vars"></div></div>
 <div class="section"><div class="title" id="legendTitle">Temperature range</div><div id="legend" class="legend temp"></div><div class="legend-labels"><span id="legendLo">low</span><span id="legendHi">high</span></div></div>
 <div class="section"><div class="title">3D ocean base</div><div class="sub">GEBCO seabed + solid land + 50 bathymetry water layers. Selecting a variable replaces the base water appearance with the measured field.</div></div>
 <div class="section"><div class="title">Vertical exaggeration</div><div class="row"><input id="exaggeration" type="range" min="4" max="30" value="10"><span id="exagValue" class="value">10x</span></div></div>
@@ -33,7 +33,7 @@
 </div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
-<script src="babylon-ocean.js?v=20260911-fields3"></script>
-<script src="ocean-fields.js?v=20260911-fields3"></script>
+<script src="babylon-ocean.js?v=20260911-fields4"></script>
+<script src="ocean-fields.js?v=20260911-fields4"></script>
 </body>
 </html>
