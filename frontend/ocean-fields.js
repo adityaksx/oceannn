@@ -1,37 +1,123 @@
-(()=>{'use strict';
-const API='http://127.0.0.1:8000',$=id=>document.getElementById(id);
-const S={catalog:[],datasets:[],meta:{},times:[],i:0,active:'temperature',geo:null,fieldMeshes:[],currentItems:[],anim:0,token:0};
-const ORDER=['temperature','temperature_anomaly','salinity','currents','sea_level','abnormal','chlorophyll'];
+(()=>{
+'use strict';
+const API='http://127.0.0.1:8000', $=id=>document.getElementById(id);
+const S={catalog:[],datasets:[],meta:{},times:[],i:0,active:'temperature',geo:null,fields:[],currents:[],raf:0,token:0};
+const IDS=['temperature','temperature_anomaly','salinity','currents','sea_level','abnormal','chlorophyll'];
 const LABEL={temperature:'Temperature',temperature_anomaly:'Sea surface temperature anomaly',salinity:'Salinity',currents:'Currents',sea_level:'Sea level',abnormal:'Abnormal / disaster data',chlorophyll:'Chlorophyll'};
-const DESC={temperature:'3D water temperature',temperature_anomaly:'SST anomaly',salinity:'Salinity / PSU',currents:'Direction and speed',sea_level:'Sea-surface height',abnormal:'Cyclone / warning information',chlorophyll:'Chlorophyll-a'};
-const PAL={temperature:[[.00,.02,.45],[.00,.25,1],[.00,.90,1],[1,1,.00],[1,.32,.00],[.70,.00,.00]],temperature_anomaly:[[.02,.15,.65],[.25,.65,1],[1,1,1],[1,.52,.25],[.62,.00,.02]],salinity:[[.00,.03,.50],[.00,.50,1],[.00,.90,.55],[.70,1,.12],[1,.85,.00]],chlorophyll:[[.96,1,.88],[.65,.94,.28],[.08,.72,.24],[.00,.38,.08],[.00,.12,.03]],sea_level:[[.02,.12,.55],[.00,.58,1],[.25,.92,1],[1,.88,.10],[.80,.04,.02]],default:[[.02,.04,.40],[.00,.50,1],[.05,.95,.80],[1,.90,.10],[.78,.02,.02]]};
-async function get(path){const r=await fetch(API+path,{cache:'no-store'});if(!r.ok)throw Error(`${r.status} ${await r.text().catch(()=> '')}`);return r.json()}
-function finite(x){return typeof x==='number'&&Number.isFinite(x)}
-function flat(x,out=[]){if(Array.isArray(x))for(const y of x)flat(y,out);else out.push(x);return out}
+const PAL={
+ temperature:[[0.00,0.02,0.35],[0.00,0.20,1.00],[0.00,0.85,1.00],[1.00,1.00,0.00],[1.00,0.25,0.00],[0.65,0.00,0.00]],
+ temperature_anomaly:[[0.00,0.12,0.70],[0.15,0.55,1.00],[1.00,1.00,1.00],[1.00,0.55,0.20],[0.65,0.00,0.02]],
+ salinity:[[0.00,0.02,0.50],[0.00,0.45,1.00],[0.00,0.95,0.55],[0.75,1.00,0.05],[1.00,0.70,0.00]],
+ sea_level:[[0.00,0.08,0.55],[0.00,0.55,1.00],[0.20,0.95,1.00],[1.00,0.85,0.05],[0.80,0.00,0.02]],
+ chlorophyll:[[0.95,1.00,0.90],[0.60,0.95,0.25],[0.05,0.75,0.20],[0.00,0.35,0.06],[0.00,0.08,0.02]]
+};
+const get=async p=>{const r=await fetch(API+p,{cache:'no-store'});if(!r.ok)throw Error(`${r.status} ${await r.text().catch(()=> '')}`);return r.json()};
+const finite=x=>typeof x==='number'&&Number.isFinite(x);
+function flatten(x,o=[]){if(Array.isArray(x))for(const y of x)flatten(y,o);else o.push(x);return o}
 function quantile(a,p){if(!a.length)return 0;const x=(a.length-1)*p,i=Math.floor(x),j=Math.ceil(x);return a[i]+(a[j]-a[i])*(x-i)}
-function dt(v){const d=new Date(v);return isNaN(d)?null:d}
-function iso(v){const d=dt(v);return d?d.toISOString():String(v??'')}
-function fmt(v){const d=dt(v);return d?d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'}):String(v??'')}
+function date(v){const d=new Date(v);return isNaN(d)?String(v??'—'):d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'})}
+function iso(v){const d=new Date(v);return isNaN(d)?String(v??''):d.toISOString()}
 function bounds(){return S.geo?.bounds||[84.104975983510294,92.99298840579259,16.070728135396756,23.524363913510872]}
 function info(id){return S.catalog.find(v=>v.id===id)||null}
 function abnormal(){for(const d of S.datasets||[])for(const v of d.variables||[])if(/cyclone|storm|disaster|warning|alert|tropical/i.test(`${v.name} ${v.long_name||''} ${v.standard_name||''}`))return{...v,file:d.file};return null}
-function rgb(id,q){q=Math.max(0,Math.min(1,q));const p=PAL[id]||PAL.default,x=q*(p.length-1),i=Math.min(p.length-2,Math.floor(x)),t=x-i,a=p[i],b=p[i+1];return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
-function hideBase(){const sc=BABYLON.Engine.LastCreatedEngine?.scenes?.[0];if(!sc)return;for(const m of sc.meshes)if(m.metadata?.waterLayer||m.metadata?.waterWall||m.metadata?.solvxWaterSurface)m.setEnabled(false)}
-function showBase(){const sc=BABYLON.Engine.LastCreatedEngine?.scenes?.[0];if(!sc)return;for(const m of sc.meshes)if(m.metadata?.waterLayer||m.metadata?.waterWall||m.metadata?.solvxWaterSurface)m.setEnabled(true)}
-function clearFields(){for(const m of S.fieldMeshes)m.dispose(false,true);S.fieldMeshes=[]}
-function clearCurrents(){if(S.anim){cancelAnimationFrame(S.anim);S.anim=0}for(const a of S.currentItems){a.line?.dispose(false,true);a.head?.dispose(false,true)}S.currentItems=[]}
-function nearest(a,x){if(!a?.length)return 0;let lo=0,hi=a.length-1,asc=a[0]<=a[hi];while(lo<hi){const m=(lo+hi)>>1;if(asc?a[m]<x:a[m]>x)lo=m+1;else hi=m}if(lo>0&&lo<a.length&&Math.abs(a[lo]-x)>=Math.abs(a[lo-1]-x))return lo-1;return lo}
-function extract2D(f){const dims=f.dimensions||[],shape=f.shape||[],lat=f.coordinates?.latitude||f.coordinates?.lat||[],lon=f.coordinates?.longitude||f.coordinates?.lon||[];const li=dims.includes('latitude')?dims.indexOf('latitude'):dims.indexOf('lat'),oi=dims.includes('longitude')?dims.indexOf('longitude'):dims.indexOf('lon');if(li<0||oi<0||!lat.length||!lon.length)return null;const raw=flat(f.data),nx=shape[oi],ny=shape[li],out=new Array(nx*ny);for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const ix=new Array(shape.length).fill(0);ix[li]=y;ix[oi]=x;let q=0,s=1;for(let k=shape.length-1;k>=0;k--){q+=ix[k]*s;s*=shape[k]}out[y*nx+x]=raw[q]}return{lat,lon,nx,ny,values:out}}
-function fieldMesh(f,depth,lo,hi,n){const sc=BABYLON.Engine.LastCreatedEngine?.scenes?.[0],d=extract2D(f);if(!sc||!d)return null;const b=bounds(),lat0=(b[2]+b[3])/2,lon0=(b[0]+b[1])/2,klat=111.32,klon=111.32*Math.cos(lat0*Math.PI/180),z=3-(Number(depth)||0)/1000*10*8,positions=[],colors=[],indices=[];let vi=0;for(let j=0;j<d.ny-1;j++)for(let i=0;i<d.nx-1;i++){const a=d.values[j*d.nx+i],bb=d.values[j*d.nx+i+1],c=d.values[(j+1)*d.nx+i],dd=d.values[(j+1)*d.nx+i+1];if(![a,bb,c,dd].every(finite))continue;const ps=[[(d.lon[i]-lon0)*klon,(d.lat[j]-lat0)*klat,z],[(d.lon[i+1]-lon0)*klon,(d.lat[j]-lat0)*klat,z],[(d.lon[i]-lon0)*klon,(d.lat[j+1]-lat0)*klat,z],[(d.lon[i+1]-lon0)*klon,(d.lat[j+1]-lat0)*klat,z]];for(const p of ps)positions.push(...p);for(const val of [a,bb,c,dd]){const q=Math.max(0,Math.min(1,(val-lo)/(hi-lo||1))),cc=rgb(S.active,q);colors.push(cc[0],cc[1],cc[2],1)}indices.push(vi,vi+2,vi+1,vi+1,vi+2,vi+3);vi+=4}if(!positions.length)return null;const mesh=new BABYLON.Mesh(`SOLVX ${S.active} field layer ${n}`,sc),vd=new BABYLON.VertexData();vd.positions=positions;vd.indices=indices;vd.colors=colors;vd.applyToMesh(mesh,true);const mat=new BABYLON.StandardMaterial(`SOLVX ${S.active} field mat ${n}`,sc);mat.diffuseColor=BABYLON.Color3.White();mat.emissiveColor=BABYLON.Color3.White();mat.specularColor=BABYLON.Color3.Black();mat.useVertexColors=true;mat.backFaceCulling=false;mat.alpha=1;mesh.material=mat;mesh.renderingGroupId=7;mesh.isPickable=true;mesh.metadata={solvxField:true,depth:Number(depth)||0};return mesh}
-async function scalar(){clearFields();clearCurrents();hideBase();const v=info(S.active);if(!v?.available){showBase();$('status').textContent=`${LABEL[S.active]}: no backend dataset detected`;return}const token=++S.token;try{const levels=(S.meta[v.file]?.values||[]).filter(finite),inds=levels.length?(()=>{const c=Math.max(0,Math.min(levels.length-1,+$('depth').value||0)),n=Math.min(5,levels.length),st=Math.max(0,Math.min(levels.length-n,c-Math.floor(n/2)));return Array.from({length:n},(_,k)=>st+k)})():[null];const frames=[];for(const i of inds){const q=new URLSearchParams({file:v.file,variable:v.variable,lat_min:String(bounds()[2]),lat_max:String(bounds()[3]),lon_min:String(bounds()[0]),lon_max:String(bounds()[1]),time_start:iso(S.times[S.i]),time_end:iso(S.times[S.i]),stride:'4'});if(i!=null){q.set('depth_min',String(levels[i]));q.set('depth_max',String(levels[i]))}const f=await get('/data/region/array?'+q);frames.push({f,depth:i==null?0:levels[i]})}if(token!==S.token)return;let all=[];for(const x of frames)all.push(...flat(x.f.data).map(Number).filter(finite));all.sort((a,b)=>a-b);if(!all.length)throw Error('No finite numeric field values returned by backend');let lo=quantile(all,.01),hi=quantile(all,.99);if(S.active==='temperature_anomaly'){const m=Math.max(Math.abs(lo),Math.abs(hi));lo=-m;hi=m}if(lo===hi)hi=lo+1;for(let i=0;i<frames.length;i++){const m=fieldMesh(frames[i].f,frames[i].depth,lo,hi,i);if(m)S.fieldMeshes.push(m)}S.field={min:all[0],max:all.at(-1),lo,hi};$('legendTitle').textContent=`${v.label} · adaptive 1–99 percentile`;$('legendLo').textContent=lo.toFixed(3);$('legendHi').textContent=hi.toFixed(3);$('status').textContent=`${v.label} · ${frames.length} visible measured layers · ${lo.toFixed(3)} → ${hi.toFixed(3)} · ${fmt(S.times[S.i])}`;$('legend').style.display='block'}catch(e){if(token===S.token){showBase();$('status').textContent=`${LABEL[S.active]} unavailable: ${e.message}`;console.error(e)}}}
-function makeVector(sc,x,z,dx,dz,len,mag){const p=new BABYLON.Vector3(x,7,z),q=new BABYLON.Vector3(x+dx*len,7,z+dz*len),shaft=BABYLON.MeshBuilder.CreateLines('SOLVX current vector',{points:[p,q],updatable:false},sc);shaft.color=new BABYLON.Color3(.01,.25,1);shaft.renderingGroupId=8;shaft.isPickable=false;const head=BABYLON.MeshBuilder.CreateLines('SOLVX current arrowhead',{points:[q,new BABYLON.Vector3(q.x-dx*5-dz*2.5,7,q.z-dz*5+dx*2.5),q,new BABYLON.Vector3(q.x-dx*5+dz*2.5,7,q.z-dz*5-dx*2.5)]},sc);head.color=new BABYLON.Color3(0,.95,1);head.renderingGroupId=9;head.isPickable=false;S.currentItems.push({shaft,head,x,z,dx,dz,len,mag,phase:Math.random()})}
-async function currents(){clearFields();clearCurrents();hideBase();const sc=BABYLON.Engine.LastCreatedEngine?.scenes?.[0];if(!sc)throw Error('3D scene is not ready');const q=new URLSearchParams({stride:'4',time:iso(S.times[S.i])});const depth=S.meta.currentsDepth??0;q.set('depth',depth);const d=await get(`/ocean/current-grid?${q}`),la=d.latitude||[],lo=d.longitude||[],u=d.u||[],v=d.v||[];const mags=[];for(let j=0;j<la.length;j++)for(let i=0;i<lo.length;i++){const a=+u[j]?.[i],b=+v[j]?.[i];if(finite(a)&&finite(b))mags.push(Math.hypot(a,b))}mags.sort((a,b)=>a-b);const p95=quantile(mags,.95)||1,b=bounds(),lat0=(b[2]+b[3])/2,lon0=(b[0]+b[1])/2,klat=111.32,klon=111.32*Math.cos(lat0*Math.PI/180);for(let j=0;j<la.length;j++)for(let i=0;i<lo.length;i++){const a=+u[j]?.[i],bb=+v[j]?.[i];if(!finite(a)||!finite(bb))continue;const m=Math.hypot(a,bb);if(m<p95*.015)continue;const x=(lo[i]-lon0)*klon,z=(la[j]-lat0)*klat,ang=Math.atan2(bb,a),len=16+Math.min(55,55*m/p95);makeVector(sc,x,z,Math.cos(ang),Math.sin(ang),len,m)}$('legendTitle').textContent='Currents · moving direction vectors';$('legendLo').textContent='0';$('legendHi').textContent=`${p95.toFixed(3)} m/s`;$('legend').style.display='block';$('status').textContent=`Currents · ${S.currentItems.length} moving vectors · P95 ${p95.toFixed(3)} m/s · ${fmt(S.times[S.i])}`;animateCurrents(performance.now())}
-function animateCurrents(t){for(const a of S.currentItems){const f=((t/1100)*(0.55+Math.min(2.2,a.mag/(Math.max(a.mag,.0001))))+a.phase)%1,d=f*a.len,tx=a.x+a.dx*d,tz=a.z+a.dz*d,q=new BABYLON.Vector3(tx,7,tz),h1=new BABYLON.Vector3(tx-a.dx*5-a.dz*2.5,7,tz-a.dz*5+a.dx*2.5),h2=new BABYLON.Vector3(tx-a.dx*5+a.dz*2.5,7,tz-a.dz*5-a.dx*2.5),arr=a.head.getVerticesData(BABYLON.VertexBuffer.PositionKind);if(arr){arr[0]=q.x;arr[1]=q.y;arr[2]=q.z;arr[3]=h1.x;arr[4]=h1.y;arr[5]=h1.z;arr[6]=q.x;arr[7]=q.y;arr[8]=q.z;arr[9]=h2.x;arr[10]=h2.y;arr[11]=h2.z;a.head.updateVerticesData(BABYLON.VertexBuffer.PositionKind,arr)}}S.anim=requestAnimationFrame(animateCurrents)}
-async function meta(v){if(!v?.file)return;try{const m=await get(`/metadata/${encodeURIComponent(v.file)}`);S.meta[v.file]={values:m.coordinates?.depth?.values||[]}}catch{S.meta[v.file]={values:[]}}}
-function buildVars(){const box=$('vars');if(!box)return;const a=abnormal();box.innerHTML='';for(const id of ORDER){const v=id==='abnormal'?a:info(id),b=document.createElement('button');b.className=`var ${v?.available?'':'off'} ${S.active===id?'active':''}`;b.dataset.var=id;b.innerHTML=`<span class="ico">${ORDER.indexOf(id)+1}</span><span><strong>${LABEL[id]}</strong><span>${v?.available?(v.units||DESC[id]):'No backend dataset detected'}</span></span><i class="dot ${v?.available?'':'off'}"></i>`;if(v?.available)b.onclick=()=>selectVar(id);box.appendChild(b)}}
-async function selectVar(id){if(!ORDER.includes(id))return;S.active=id;clearFields();clearCurrents();buildVars();$('legendTitle').textContent=LABEL[id];$('legendLo').textContent='';$('legendHi').textContent='';const v=id==='abnormal'?abnormal():info(id);if(!v?.available){showBase();$('status').textContent=`${LABEL[id]}: no backend dataset detected`;return}if(id==='abnormal'){showBase();$('status').textContent='Abnormal/disaster layer is data-dependent and has no scalar surface renderer yet';return}if(id==='currents'){S.meta.currentsDepth=0;await currents();return}hideBase();await meta(v);await scalar()}
-function setTime(i){S.i=Math.max(0,Math.min(S.times.length-1,+i||0));$('timeSlider').value=S.i;$('timeValue').textContent=fmt(S.times[S.i]);$('timeRaw').textContent=iso(S.times[S.i]);if(S.active==='currents')currents();else if(S.active!=='abnormal')scalar()}
-function timeline(){const x=$('timeSlider');x.max=Math.max(0,S.times.length-1);x.oninput=()=>setTime(x.value);$('timeCount').textContent=`${S.times.length} frames`;setTime(0)}
-function point(point,mesh){const sc=BABYLON.Engine.LastCreatedEngine?.scenes?.[0];if(!sc)return;const b=bounds(),lat0=(b[2]+b[3])/2,lon0=(b[0]+b[1])/2,lat=lat0+point.z/111.32,lon=lon0+point.x/(111.32*Math.cos(lat0*Math.PI/180));$('coords').textContent=`${lat.toFixed(4)}°N · ${lon.toFixed(4)}°E`;$('readout').style.display='block';$('readoutGrid').innerHTML='<div class="rval">Loading variables…</div>';const t=iso(S.times[S.i]);get(`/ocean/point?latitude=${lat}&longitude=${lon}&time=${encodeURIComponent(t)}`).then(d=>{$('readoutGrid').innerHTML=(d.values||[]).filter(v=>v.available).map(v=>{let x=v.value;if(x&&typeof x==='object')x=Object.entries(x).map(([k,y])=>`${k}: ${finite(Number(y))?Number(y).toFixed(3):'—'}`).join(' · ');else x=finite(Number(x))?Number(x).toFixed(3):'—';return`<div class="rval"><b>${v.label}</b><span>${x}${v.units?' '+v.units:''}</span></div>`}).join('');$('readoutTime').textContent=`${fmt(S.times[S.i])} · active depth ${mesh?.metadata?.depth??0} m`}).catch(()=>{$('readoutGrid').innerHTML='<div class="rval">Point lookup failed</div>'})}
-async function init(){try{S.geo=await fetch(`geometry.json?${Date.now()}`).then(r=>r.json());const[c,t,d]=await Promise.all([get('/ocean/catalog'),get('/ocean/time'),get('/datasets')]);S.catalog=c.variables||[];S.times=t.values||[];S.datasets=d.datasets||[];buildVars();timeline();const sc=BABYLON.Engine.LastCreatedEngine?.scenes?.[0];if(sc)sc.onPointerObservable.add(e=>{if(e.type!==BABYLON.PointerEventTypes.POINTERDOWN||e.event.button!==0)return;const p=sc.pick(sc.pointerX,sc.pointerY,m=>m.metadata?.solvxField||m.metadata?.waterLayer||m.name==='GEBCO SOIL SEABED');if(p?.hit&&p.pickedPoint)point(p.pickedPoint,p.pickedMesh)});const first=S.catalog.find(x=>x.id==='temperature'&&x.available)||S.catalog.find(x=>x.available);if(first)await selectVar(first.id)}catch(e){console.error('SolvX fields',e);$('status').textContent=`Field renderer error: ${e.message}`)}}setTimeout(init,900);
+function color(id,q){q=Math.max(0,Math.min(1,q));const p=PAL[id]||PAL.sea_level,x=q*(p.length-1),i=Math.min(p.length-2,Math.floor(x)),t=x-i,a=p[i],b=p[i+1];return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+function scene(){return BABYLON.Engine.LastCreatedEngine?.scenes?.[0]}
+function baseMeshes(){const sc=scene();return sc?sc.meshes.filter(m=>m.metadata?.waterLayer||m.metadata?.waterWall||m.metadata?.solvxWaterSurface):[]}
+function hideBase(){for(const m of baseMeshes())m.setEnabled(false)}
+function showBase(){for(const m of baseMeshes())m.setEnabled(true)}
+function clearFields(){for(const m of S.fields)m.dispose(false,true);S.fields=[]}
+function clearCurrents(){if(S.raf){cancelAnimationFrame(S.raf);S.raf=0}for(const a of S.currents){a.line?.dispose(false,true);a.head?.dispose(false,true)}S.currents=[]}
+function extract2D(f){
+ const dims=f.dimensions||[],shape=f.shape||[],lat=f.coordinates?.latitude||f.coordinates?.lat||[],lon=f.coordinates?.longitude||f.coordinates?.lon||[];
+ const li=dims.includes('latitude')?dims.indexOf('latitude'):dims.indexOf('lat'), oi=dims.includes('longitude')?dims.indexOf('longitude'):dims.indexOf('lon');
+ if(li<0||oi<0||!shape[li]||!shape[oi]||!lat.length||!lon.length)return null;
+ const raw=flatten(f.data),nx=shape[oi],ny=shape[li],values=new Array(nx*ny);
+ for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){
+   const ix=new Array(shape.length).fill(0);ix[li]=y;ix[oi]=x;
+   let flat=0,mul=1;for(let k=shape.length-1;k>=0;k--){flat+=ix[k]*mul;mul*=shape[k]}
+   values[y*nx+x]=Number(raw[flat]);
+ }
+ return{lat,lon,nx,ny,values};
+}
+function xy(lon,lat,y){const b=bounds(),lat0=(b[2]+b[3])/2,lon0=(b[0]+b[1])/2;return[(lon-lon0)*111.32*Math.cos(lat0*Math.PI/180),y,(lat-lat0)*111.32]}
+function makeField(f,depth,lo,hi,layer){
+ const sc=scene(),d=extract2D(f);if(!sc||!d)return null;
+ const positions=[],colors=[],indices=[];let vi=0;
+ // Put the measured field ABOVE the old water volume. This is deliberately a fixed positive
+ // offset so the field remains visible even when the bathymetry mesh is close to sea level.
+ const y=18-layer*0.65;
+ for(let j=0;j<d.ny-1;j++)for(let i=0;i<d.nx-1;i++){
+   const a=d.values[j*d.nx+i],b=d.values[j*d.nx+i+1],c=d.values[(j+1)*d.nx+i],e=d.values[(j+1)*d.nx+i+1];
+   if(![a,b,c,e].every(finite))continue;
+   for(const p of [xy(d.lon[i],d.lat[j],y),xy(d.lon[i+1],d.lat[j],y),xy(d.lon[i],d.lat[j+1],y),xy(d.lon[i+1],d.lat[j+1],y)])positions.push(...p);
+   for(const v of [a,b,c,e]){const q=(v-lo)/(hi-lo||1),c3=color(S.active,q);colors.push(c3[0],c3[1],c3[2],1)}
+   indices.push(vi,vi+2,vi+1,vi+1,vi+2,vi+3);vi+=4;
+ }
+ if(!positions.length)return null;
+ const mesh=new BABYLON.Mesh(`SOLVX FIELD ${S.active} ${layer}`,sc),vd=new BABYLON.VertexData();
+ vd.positions=positions;vd.indices=indices;vd.colors=colors;vd.applyToMesh(mesh,true);
+ const mat=new BABYLON.StandardMaterial(`SOLVX FIELD MATERIAL ${layer}`,sc);
+ mat.diffuseColor=BABYLON.Color3.White();mat.emissiveColor=BABYLON.Color3.White();mat.specularColor=BABYLON.Color3.Black();mat.useVertexColors=true;mat.backFaceCulling=false;mat.disableLighting=true;mat.alpha=1;
+ mesh.material=mat;mesh.renderingGroupId=20;mesh.isPickable=true;mesh.metadata={solvxField:true,depth:Number(depth)||0};
+ return mesh;
+}
+async function scalar(){
+ clearFields();clearCurrents();hideBase();
+ const v=info(S.active);if(!v?.available){showBase();$('status').textContent=`${LABEL[S.active]}: no backend dataset detected`;return}
+ const token=++S.token;
+ try{
+  const levels=(S.meta[v.file]?.values||[]).filter(finite);
+  const center=Math.max(0,Math.min(Math.max(0,levels.length-1),+$('depth').value||0));
+  const n=Math.min(5,Math.max(1,levels.length||1));
+  const start=levels.length?Math.max(0,Math.min(levels.length-n,center-Math.floor(n/2))):null;
+  const inds=levels.length?Array.from({length:n},(_,k)=>start+k):[null];
+  const frames=[];
+  for(const idx of inds){
+   const q=new URLSearchParams({file:v.file,variable:v.variable,lat_min:String(bounds()[2]),lat_max:String(bounds()[3]),lon_min:String(bounds()[0]),lon_max:String(bounds()[1]),time_start:iso(S.times[S.i]),time_end:iso(S.times[S.i]),stride:'3'});
+   if(idx!=null){q.set('depth_min',String(levels[idx]));q.set('depth_max',String(levels[idx]))}
+   frames.push({f:await get('/data/region/array?'+q),depth:idx==null?0:levels[idx]});
+  }
+  if(token!==S.token)return;
+  let all=[];for(const x of frames)all.push(...flatten(x.f.data).map(Number).filter(finite));all.sort((a,b)=>a-b);
+  if(!all.length)throw Error('Backend returned no finite values');
+  let lo=quantile(all,.005),hi=quantile(all,.995);if(lo===hi)hi=lo+1;
+  if(S.active==='temperature_anomaly'){const m=Math.max(Math.abs(lo),Math.abs(hi));lo=-m;hi=m}
+  for(let k=0;k<frames.length;k++){const m=makeField(frames[k].f,frames[k].depth,lo,hi,k);if(m)S.fields.push(m)}
+  $('legendTitle').textContent=`${v.label} · adaptive 0.5–99.5 percentile`;$('legendLo').textContent=lo.toFixed(3);$('legendHi').textContent=hi.toFixed(3);$('legend').style.display='block';
+  $('status').textContent=`${v.label} · ${S.fields.length} visible data layers · range ${lo.toFixed(3)} → ${hi.toFixed(3)} · ${date(S.times[S.i])}`;
+ }catch(e){if(token===S.token){clearFields();showBase();$('status').textContent=`${LABEL[S.active]} failed: ${e.message}`;console.error(e)}}
+}
+function makeArrow(x,z,dx,dz,len,mag){
+ const sc=scene(),y=25,p=new BABYLON.Vector3(x,y,z),q=new BABYLON.Vector3(x+dx*len,y,z+dz*len);
+ const line=BABYLON.MeshBuilder.CreateLines('SOLVX CURRENT VECTOR',{points:[p,q],updatable:false},sc);line.color=new BABYLON.Color3(0.05,0.30,1);line.renderingGroupId=30;line.isPickable=false;
+ const head=BABYLON.MeshBuilder.CreateLines('SOLVX CURRENT MOVING HEAD',{points:[q,q,q,q],updatable:true},sc);head.color=new BABYLON.Color3(0,1,1);head.renderingGroupId=31;head.isPickable=false;
+ S.currents.push({line,head,x,z,dx,dz,len,mag,phase:Math.random()});
+}
+async function currents(){
+ clearFields();clearCurrents();hideBase();
+ try{
+  const q=new URLSearchParams({stride:'4',time:iso(S.times[S.i]),depth:'0'}),d=await get('/ocean/current-grid?'+q),la=d.latitude||[],lo=d.longitude||[],u=d.u||[],v=d.v||[],mags=[];
+  for(let j=0;j<la.length;j++)for(let i=0;i<lo.length;i++){const a=Number(u[j]?.[i]),b=Number(v[j]?.[i]);if(finite(a)&&finite(b))mags.push(Math.hypot(a,b))}
+  mags.sort((a,b)=>a-b);const p95=quantile(mags,.95)||1,b=bounds(),lat0=(b[2]+b[3])/2,lon0=(b[0]+b[1])/2,klon=111.32*Math.cos(lat0*Math.PI/180);
+  for(let j=0;j<la.length;j++)for(let i=0;i<lo.length;i++){
+   const a=Number(u[j]?.[i]),bb=Number(v[j]?.[i]);if(!finite(a)||!finite(bb))continue;const mag=Math.hypot(a,bb);if(mag<p95*.005)continue;
+   const x=(lo[i]-lon0)*klon,z=(la[j]-lat0)*111.32,ang=Math.atan2(bb,a),len=20+70*Math.min(1,mag/p95);makeArrow(x,z,Math.cos(ang),Math.sin(ang),len,mag);
+  }
+  $('legendTitle').textContent='Currents · speed + direction';$('legendLo').textContent='0 m/s';$('legendHi').textContent=`${p95.toFixed(3)} m/s`;$('legend').style.display='block';$('status').textContent=`Currents · ${S.currents.length} moving vectors · P95 ${p95.toFixed(3)} m/s · ${date(S.times[S.i])}`;
+  animate(performance.now());
+ }catch(e){showBase();$('status').textContent=`Currents failed: ${e.message}`;console.error(e)}
+}
+function animate(t){
+ for(const a of S.currents){
+  const f=((t/900)*(0.45+Math.min(2.5,a.mag/Math.max(a.mag,.001)))+a.phase)%1,d=f*a.len,x=a.x+a.dx*d,z=a.z+a.dz*d,tip=new BABYLON.Vector3(x,25,z),h1=new BABYLON.Vector3(x-a.dx*7-a.dz*3,25,z-a.dz*7+a.dx*3),h2=new BABYLON.Vector3(x-a.dx*7+a.dz*3,25,z-a.dz*7-a.dx*3),arr=a.head.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+  arr[0]=tip.x;arr[1]=tip.y;arr[2]=tip.z;arr[3]=h1.x;arr[4]=h1.y;arr[5]=h1.z;arr[6]=tip.x;arr[7]=tip.y;arr[8]=tip.z;arr[9]=h2.x;arr[10]=h2.y;arr[11]=h2.z;a.head.updateVerticesData(BABYLON.VertexBuffer.PositionKind,arr);
+ }
+ if(S.currents.length)S.raf=requestAnimationFrame(animate);
+}
+async function meta(v){try{const m=await get('/metadata/'+encodeURIComponent(v.file));S.meta[v.file]={values:m.coordinates?.depth?.values||[]}}catch{S.meta[v.file]={values:[]}}}
+function buildVars(){const box=$('vars');if(!box)return;const bad=abnormal();box.innerHTML='';for(const id of IDS){const v=id==='abnormal'?bad:info(id),b=document.createElement('button');b.className=`var ${v?.available?'':'off'} ${S.active===id?'active':''}`;b.innerHTML=`<span class="ico">${IDS.indexOf(id)+1}</span><span><strong>${LABEL[id]}</strong><span>${v?.available?(v.units||''): 'No backend dataset detected'}</span></span><i class="dot ${v?.available?'':'off'}"></i>`;if(v?.available)b.onclick=()=>select(id);box.appendChild(b)}}
+async function select(id){S.active=id;buildVars();clearFields();clearCurrents();const v=id==='abnormal'?abnormal():info(id);if(!v?.available){showBase();$('status').textContent=`${LABEL[id]}: no backend dataset detected`;return}if(id==='abnormal'){showBase();$('status').textContent='Abnormal/disaster data has no scalar ocean renderer';return}if(id==='currents'){await currents();return}await meta(v);await scalar()}
+function setTime(i){S.i=Math.max(0,Math.min(S.times.length-1,+i||0));$('timeSlider').value=S.i;$('timeValue').textContent=date(S.times[S.i]);$('timeRaw').textContent=iso(S.times[S.i]);$('timeCount').textContent=`${S.i+1}/${S.times.length}`;if(S.active==='currents')currents();else if(info(S.active)?.available)scalar()}
+async function init(){try{S.geo=await fetch('geometry.json?'+Date.now(),{cache:'no-store'}).then(r=>r.json());const[c,t,d]=await Promise.all([get('/ocean/catalog'),get('/ocean/time'),get('/datasets')]);S.catalog=c.variables||[];S.times=t.values||[];S.datasets=d.datasets||[];buildVars();const ts=$('timeSlider');ts.max=Math.max(0,S.times.length-1);ts.oninput=()=>setTime(ts.value);if(S.times.length){$('timeValue').textContent=date(S.times[0]);$('timeRaw').textContent=iso(S.times[0]);$('timeCount').textContent=`1/${S.times.length}`}const first=S.catalog.find(v=>v.id==='temperature'&&v.available)||S.catalog.find(v=>v.available);if(first)await select(first)}catch(e){$('status').textContent=`Field system error: ${e.message}`;console.error(e)}}
+setTimeout(init,900);
 })();
