@@ -72,9 +72,43 @@ def bathy(nc):
  if arr.size>MAX_GRID_POINTS:
   f=int(np.ceil(np.sqrt(arr.size/MAX_GRID_POINTS)));arr=arr[::f,::f];lat=lat[::f];lon=lon[::f]
  dep=np.where(arr<0,-arr/1000,np.nan).astype(np.float32)
- # JSON has no NaN literal. Build Python lists explicitly so invalid cells become null.
  dep_json=[[None if not np.isfinite(v) else float(v) for v in row] for row in dep]
  xx,yy=xy(lon,lat);return xx.tolist(),yy.tolist(),dep_json,float(np.nanmax(dep))
+
+def temperature_depths(data_dir):
+ """Read the vertical levels from data/model/temperature.nc.
+
+    The renderer uses these levels to build the same number of horizontal ocean
+    strata instead of hard-coding four or five arbitrary depths.
+    """
+ p=Path(data_dir)/'model'/'temperature.nc'
+ if not p.exists(): return []
+ ds=xr.open_dataset(p,decode_times=False)
+ try:
+  candidates=['depth','deptht','depthu','depthv','depthw','lev','level','z','depths']
+  name=next((n for n in candidates if n in ds.coords or n in ds.variables),None)
+  if name is None:
+   for n in ds.coords:
+    if 'depth' in n.lower() or n.lower() in {'lev','level','z'}: name=n; break
+  if name is None:
+   for n in ds.dims:
+    if 'depth' in n.lower() or n.lower() in {'lev','level','z'}: name=n; break
+  if name is None: return []
+  arr=np.asarray(ds[name].values).squeeze()
+  if arr.ndim!=1: return []
+  vals=[]
+  for value in arr:
+   try:
+    v=float(value)
+   except (TypeError,ValueError): continue
+   if np.isfinite(v): vals.append(abs(v))
+  vals=sorted(set(vals))
+  units=str(getattr(ds[name],'units','')).lower()
+  if 'cm' in units and 'm' not in units: vals=[v/100 for v in vals]
+  elif 'km' in units: vals=[v*1000 for v in vals]
+  return vals
+ finally: ds.close()
+
 def prepare(data_dir):
  d=Path(data_dir);z={'coast':find_zip(d,'ne_10m_coastline.zip','coastline'),'land':find_zip(d,'ne_10m_land.zip','ne_10m_land'),'islands':find_zip(d,'ne_10m_minor_islands.zip','minor_islands'),'eez':find_zip(d,'World_EEZ_v12_20231025_LR.zip','World_EEZ'),'gebco':find_zip(d,'GEBCO_10_Sep_2026_c6ae0e7b7408.zip','GEBCO')}
  with tempfile.TemporaryDirectory(prefix='solvx3_') as t:
@@ -83,4 +117,4 @@ def prepare(data_dir):
    x=eez[eez.SOVEREIGN1.isin({'India','Bangladesh','Myanmar'})]
    if not x.empty:eez=x
   x,y,raw,md=bathy(first(q['gebco'],'*.nc'));ep=lines(eez)
-  return {'bounds':[WEST,EAST,SOUTH,NORTH],'terrain':{'x':x,'y':y,'rawDepthKm':raw,'maxDepthKm':md},'land':polygons(land),'islands':polygons(islands),'coast':lines(coast),'landBoundary':lines(land),'islandCoast':lines(islands),'eez':ep,'eezBeads':beads(ep),'landThickness':LAND_THICKNESS_KM,'baseExtra':BASE_EXTRA_KM}
+  return {'bounds':[WEST,EAST,SOUTH,NORTH],'terrain':{'x':x,'y':y,'rawDepthKm':raw,'maxDepthKm':md},'land':polygons(land),'islands':polygons(islands),'coast':lines(coast),'landBoundary':lines(land),'islandCoast':lines(islands),'eez':ep,'eezBeads':beads(ep),'temperatureDepthsM':temperature_depths(d),'landThickness':LAND_THICKNESS_KM,'baseExtra':BASE_EXTRA_KM}

@@ -1,22 +1,406 @@
 (() => {
 'use strict';
-const $=id=>document.getElementById(id), finite=v=>typeof v==='number'&&Number.isFinite(v);
-let data=null,depthEx=10,engine,scene,camera,seabed=null,water=null,waterLayers=[];
-const WATER_BUMP='https://www.babylonjs-playground.com/textures/waterbump.png';
-function status(t,type='ok'){ $('status').textContent=t; $('statusDot').className=`statusdot ${type==='error'?'error':type==='busy'?'busy':''}` }
-function fail(e){console.error(e);status(`3D viewer failed: ${e?.message||e}`,'error');$('loading')?.classList.add('hide');$('fatalText').textContent=e?.message||String(e);$('fatal').style.display='block'}
-function bounds(){const xs=data.terrain.x,ys=data.terrain.y;let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity;for(const x of xs){if(x<minX)minX=x;if(x>maxX)maxX=x}for(const y of ys){if(y<minZ)minZ=y;if(y>maxZ)maxZ=y}return{minX,maxX,minZ,maxZ,cx:(minX+maxX)/2,cz:(minZ+maxZ)/2,size:Math.max(maxX-minX,maxZ-minZ)}}
-function mesh(name,pos,idx,mat){const m=new BABYLON.Mesh(name,scene),v=new BABYLON.VertexData();v.positions=pos;v.indices=idx;v.applyToMesh(m,true);m.material=mat;return m}
-function landMat(){const m=new BABYLON.StandardMaterial('solid green land',scene);m.diffuseColor=new BABYLON.Color3(.12,.48,.16);m.emissiveColor=new BABYLON.Color3(.015,.055,.02);m.specularColor=BABYLON.Color3.Black();m.backFaceCulling=false;return m}
-function seabedMat(){const m=new BABYLON.StandardMaterial('GEBCO seabed',scene);m.diffuseColor=new BABYLON.Color3(.31,.24,.18);m.specularColor=BABYLON.Color3.Black();return m}
-function makeSeabed(){const t=data.terrain,xs=t.x,ys=t.y,raw=t.rawDepthKm,nx=xs.length,ny=ys.length,p=new Float32Array(nx*ny*3),idx=[];let k=0;for(let j=0;j<ny;j++)for(let i=0;i<nx;i++,k++){const d=raw[j]?.[i];p[k*3]=xs[i];p[k*3+1]=finite(d)?-d*depthEx:-3;p[k*3+2]=ys[j]}for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const q=[raw[j]?.[i],raw[j]?.[i+1],raw[j+1]?.[i],raw[j+1]?.[i+1]];if(q.every(finite)){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx.push(a,c,b,b,c,d)}}return mesh('GEBCO seabed',Array.from(p),idx,seabedMat())}
-function addLand(){const mat=landMat();const bottom=-Math.max(55,Math.min(160,(data.terrain.maxDepthKm||5)*depthEx*.12));let count=0;for(const polys of [data.land||[],data.islands||[]])for(const poly of polys){if(!poly?.vertices?.length||!poly?.triangles?.length)continue;const n=poly.vertices.length,top=poly.vertices.map(q=>[+q[0],8,+q[1]]),bot=poly.vertices.map(q=>[+q[0],bottom,+q[1]]),pos=top.concat(bot).flat(),idx=[];for(const t of poly.triangles){if(Array.isArray(t)&&t.length>=3){const a=+t[0],b=+t[1],c=+t[2];idx.push(a,c,b);idx.push(a+n,b+n,c+n)}}const ring=poly.top||[];for(let i=0;i<ring.length-1;i++){const va=poly.vertices.findIndex(q=>Math.hypot(q[0]-ring[i][0],q[1]-ring[i][1])<.0001),vb=poly.vertices.findIndex(q=>Math.hypot(q[0]-ring[i+1][0],q[1]-ring[i+1][1])<.0001);if(va>=0&&vb>=0)idx.push(va,vb,va+n,vb,vb+n,va+n)}if(idx.length){const m=mesh(`land-chunk-${count}`,pos,idx,mat);m.renderingGroupId=3;m.metadata={solvx:true};count++}}return count}
-function addLines(name,parts,y,color){for(let n=0;n<(parts||[]).length;n++){const a=parts[n];if(a.length<2)continue;const pts=a.map(q=>new BABYLON.Vector3(+q[0],y,+q[1]));const l=BABYLON.MeshBuilder.CreateLines(`${name}-${n}`,{points:pts},scene);l.color=color;l.renderingGroupId=4;l.metadata={solvx:true}}}
-function makeWater(){const b=bounds();if(water)water.dispose(false,true);const w=BABYLON.MeshBuilder.CreateGround('ocean water surface',{width:b.maxX-b.minX,height:b.maxZ-b.minZ,subdivisions:160},scene);w.position.set(b.cx,4,b.cz);let m;if(BABYLON.WaterMaterial){m=new BABYLON.WaterMaterial('realistic ocean water',scene);m.bumpTexture=new BABYLON.Texture(WATER_BUMP,scene);m.windForce=3;m.waveHeight=.55;m.bumpHeight=.22;m.windDirection=new BABYLON.Vector2(.8,.35);m.waveLength=.55;m.waterColor=new BABYLON.Color3(.01,.28,.62);m.waterColor2=new BABYLON.Color3(.02,.55,.78);m.colorBlendFactor=.32;m.alpha=1;m.addToRenderList(seabed);scene.meshes.filter(x=>x.metadata?.solvx).forEach(x=>m.addToRenderList(x));}else{m=new BABYLON.StandardMaterial('opaque ocean',scene);m.diffuseColor=new BABYLON.Color3(.015,.36,.72);m.specularColor=new BABYLON.Color3(.35,.55,.8)}w.material=m;w.renderingGroupId=2;w.metadata={solvx:true};water=w}
-function makeLayers(){waterLayers.forEach(x=>x.dispose(false,true));waterLayers=[];const b=bounds(),levels=[{y:2.5,c:new BABYLON.Color3(.02,.62,.82)},{y:-8,c:new BABYLON.Color3(.015,.50,.78)},{y:-22,c:new BABYLON.Color3(.01,.40,.70)},{y:-40,c:new BABYLON.Color3(.008,.31,.60)},{y:-65,c:new BABYLON.Color3(.006,.23,.50)}];for(let i=0;i<levels.length;i++){const q=levels[i],m=BABYLON.MeshBuilder.CreateGround(`ocean-layer-${i}`,{width:b.maxX-b.minX,height:b.maxZ-b.minZ,subdivisions:1},scene);m.position.set(b.cx,q.y,b.cz);const mat=new BABYLON.StandardMaterial(`ocean-stratum-${i}`,scene);mat.diffuseColor=q.c;mat.emissiveColor=new BABYLON.Color3(q.c.r*.08,q.c.g*.08,q.c.b*.08);mat.specularColor=BABYLON.Color3.Black();mat.alpha=.16;mat.backFaceCulling=false;m.material=mat;m.renderingGroupId=1;m.metadata={solvx:true};waterLayers.push(m)}}
-function fit(mode='3d'){const b=bounds(),d=Math.max(650,b.size*1.35);camera.target.set(b.cx,0,b.cz);if(mode==='top'){camera.alpha=-Math.PI/2;camera.beta=.12;camera.radius=d*1.03}else if(mode==='profile'){camera.alpha=0;camera.beta=1.1;camera.radius=d}else if(mode==='under'){camera.alpha=.7;camera.beta=2.25;camera.radius=d*.9}else{camera.alpha=-.85;camera.beta=1.0;camera.radius=d}}
-function build(){scene.meshes.slice().forEach(m=>{if(m.metadata?.solvx)m.dispose(false,true)});seabed=makeSeabed();seabed.metadata={solvx:true};const landCount=addLand();addLines('coast',data.coast,9.3,new BABYLON.Color3(.02,.20,.22));addLines('eez',data.eez,9.1,new BABYLON.Color3(.95,.55,.04));makeLayers();makeWater();fit('3d');status(`3D ocean ready · ${landCount} solid green land chunks`);$('loading').classList.add('hide')}
-async function init(){try{if(!window.BABYLON)throw Error('Babylon.js CDN did not load');const c=$('renderCanvas');engine=new BABYLON.Engine(c,true,{stencil:true,preserveDrawingBuffer:false},true);scene=new BABYLON.Scene(engine);scene.clearColor=new BABYLON.Color4(.875,.918,.945,1);const hemi=new BABYLON.HemisphericLight('hemi',new BABYLON.Vector3(0,1,0),scene);hemi.intensity=1.35;const sun=new BABYLON.DirectionalLight('sun',new BABYLON.Vector3(-.5,-1,-.4),scene);sun.intensity=2;camera=new BABYLON.ArcRotateCamera('camera',-.85,1,2500,BABYLON.Vector3.Zero(),scene);camera.attachControl(c,true);camera.lowerRadiusLimit=30;camera.upperRadiusLimit=18000;camera.wheelPrecision=2;camera.panningSensibility=90;status('Loading geometry.json…','busy');const r=await fetch(`geometry.json?${Date.now()}`,{cache:'no-store'});if(!r.ok)throw Error(`${r.status} ${r.statusText}`);data=await r.json();if(!data.terrain?.x?.length)throw Error('Invalid terrain grid');build();engine.runRenderLoop(()=>scene.render());addEventListener('resize',()=>engine.resize())}catch(e){fail(e)}}
-$('exaggeration').value=10;$('exagValue').textContent='10×';$('exaggeration').addEventListener('input',e=>{depthEx=+e.target.value||10;if(seabed){const v=seabed.getVerticesData(BABYLON.VertexBuffer.PositionKind),raw=data.terrain.rawDepthKm,nx=data.terrain.x.length,ny=data.terrain.y.length;for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i,d=raw[j]?.[i];v[k*3+1]=finite(d)?-d*depthEx:-3}seabed.updateVerticesData(BABYLON.VertexBuffer.PositionKind,v,false,false);makeLayers();makeWater();fit('3d')}});
-$('reset').onclick=()=>fit('3d');$('fullscreen').onclick=()=>document.documentElement.requestFullscreen?.();document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-view]').forEach(x=>x.classList.remove('active'));b.classList.add('active');fit(b.dataset.view)});init();
+
+const $ = id => document.getElementById(id);
+const finite = v => typeof v === 'number' && Number.isFinite(v);
+
+let data = null;
+let depthEx = 10;
+let engine, scene, camera;
+let seabed = null, waterSurface = null;
+let layerMeshes = [], wallMeshes = [], landMeshes = [];
+let waterBump = null, soilBump = null, landBump = null;
+let currentView = '3d';
+
+const DEG_KM = 111.32;
+const SURFACE_Y = 0;
+const LAND_TOP_Y = 8;
+const SOIL_BOTTOM_Y = -120;
+const WATER_BUMP_URL = 'https://www.babylonjs-playground.com/textures/waterbump.png';
+const SOIL_BUMP_URL = 'https://www.babylonjs-playground.com/textures/floor_bump.PNG';
+const GRASS_BUMP_URL = 'https://www.babylonjs-playground.com/textures/grassn.png';
+
+function status(text, type = 'ok') {
+  $('status').textContent = text;
+  $('statusDot').className = `statusdot ${type === 'error' ? 'error' : type === 'busy' ? 'busy' : ''}`;
+}
+
+function fail(error) {
+  console.error(error);
+  status(`3D viewer failed: ${error?.message || error}`, 'error');
+  $('loading')?.classList.add('hide');
+  $('fatalText').textContent = error?.message || String(error);
+  $('fatal').style.display = 'block';
+}
+
+function geo() {
+  const xs = data.terrain.x, ys = data.terrain.y;
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const x of xs) { minLon = Math.min(minLon, x); maxLon = Math.max(maxLon, x); }
+  for (const y of ys) { minLat = Math.min(minLat, y); maxLat = Math.max(maxLat, y); }
+  const lat0 = (minLat + maxLat) / 2;
+  const lon0 = (minLon + maxLon) / 2;
+  const kmLon = DEG_KM * Math.cos(lat0 * Math.PI / 180);
+  return {
+    minLon, maxLon, minLat, maxLat, lon0, lat0, kmLon,
+    minX: (minLon - lon0) * kmLon,
+    maxX: (maxLon - lon0) * kmLon,
+    minZ: (minLat - lat0) * DEG_KM,
+    maxZ: (maxLat - lat0) * DEG_KM,
+    width: (maxLon - minLon) * kmLon,
+    height: (maxLat - minLat) * DEG_KM
+  };
+}
+
+function xy(lon, lat) {
+  const g = geo();
+  return [(lon - g.lon0) * g.kmLon, (lat - g.lat0) * DEG_KM];
+}
+
+function makeMesh(name, positions, indices, material) {
+  const mesh = new BABYLON.Mesh(name, scene);
+  const vd = new BABYLON.VertexData();
+  vd.positions = positions;
+  vd.indices = indices;
+  vd.applyToMesh(mesh, true);
+  mesh.material = material;
+  mesh.metadata = { solvx: true };
+  return mesh;
+}
+
+function landMaterial() {
+  const m = new BABYLON.StandardMaterial('forest cover land', scene);
+  m.diffuseColor = new BABYLON.Color3(0.055, 0.26, 0.075);
+  m.emissiveColor = new BABYLON.Color3(0.008, 0.045, 0.012);
+  m.specularColor = BABYLON.Color3.Black();
+  m.backFaceCulling = false;
+  m.disableLighting = false;
+  landBump = new BABYLON.Texture(GRASS_BUMP_URL, scene);
+  landBump.uScale = 5;
+  landBump.vScale = 5;
+  landBump.level = 0.18;
+  m.bumpTexture = landBump;
+  return m;
+}
+
+function seabedMaterial() {
+  const m = new BABYLON.StandardMaterial('soil seabed', scene);
+  m.diffuseColor = new BABYLON.Color3(0.28, 0.16, 0.085);
+  m.emissiveColor = new BABYLON.Color3(0.018, 0.010, 0.006);
+  m.specularColor = new BABYLON.Color3(0.04, 0.03, 0.02);
+  m.backFaceCulling = false;
+  soilBump = new BABYLON.Texture(SOIL_BUMP_URL, scene);
+  soilBump.uScale = 4;
+  soilBump.vScale = 4;
+  soilBump.level = 0.45;
+  m.bumpTexture = soilBump;
+  return m;
+}
+
+function waterMaterial() {
+  const m = new BABYLON.StandardMaterial('opaque ocean surface', scene);
+  m.diffuseColor = new BABYLON.Color3(0.015, 0.27, 0.72);
+  m.emissiveColor = new BABYLON.Color3(0.003, 0.035, 0.11);
+  m.specularColor = new BABYLON.Color3(0.55, 0.75, 1.0);
+  m.specularPower = 96;
+  m.alpha = 1;
+  m.backFaceCulling = false;
+  waterBump = new BABYLON.Texture(WATER_BUMP_URL, scene);
+  waterBump.uScale = 7;
+  waterBump.vScale = 7;
+  waterBump.level = 0.7;
+  m.bumpTexture = waterBump;
+  return m;
+}
+
+function makeSeabed() {
+  const t = data.terrain, xs = t.x, ys = t.y, raw = t.rawDepthKm;
+  const nx = xs.length, ny = ys.length;
+  const positions = new Float32Array(nx * ny * 3);
+  const indices = [];
+  let k = 0;
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++, k++) {
+      const p = xy(xs[i], ys[j]);
+      const d = raw[j]?.[i];
+      positions[k * 3] = p[0];
+      positions[k * 3 + 1] = finite(d) ? -d * depthEx * 8 : SOIL_BOTTOM_Y;
+      positions[k * 3 + 2] = p[1];
+    }
+  }
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const q = [raw[j]?.[i], raw[j]?.[i + 1], raw[j + 1]?.[i], raw[j + 1]?.[i + 1]];
+      if (!q.every(finite)) continue;
+      const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  const mesh = makeMesh('REAL SOIL SEABED', Array.from(positions), indices, seabedMaterial());
+  mesh.renderingGroupId = 0;
+  return mesh;
+}
+
+function makeLand() {
+  const mat = landMaterial();
+  const maxSea = Math.max(120, Math.min(600, (data.terrain.maxDepthKm || 5) * depthEx * 4));
+  const bottom = -maxSea;
+  let count = 0;
+  for (const polygons of [data.land || [], data.islands || []]) {
+    for (const poly of polygons) {
+      if (!poly?.vertices?.length || !poly?.triangles?.length) continue;
+      const n = poly.vertices.length;
+      const positions = [];
+      for (const q of poly.vertices) { const p = xy(+q[0], +q[1]); positions.push(p[0], LAND_TOP_Y, p[1]); }
+      for (const q of poly.vertices) { const p = xy(+q[0], +q[1]); positions.push(p[0], bottom, p[1]); }
+      const indices = [];
+      for (const tri of poly.triangles) {
+        if (!Array.isArray(tri) || tri.length < 3) continue;
+        const a = +tri[0], b = +tri[1], c = +tri[2];
+        indices.push(a, c, b, a + n, b + n, c + n);
+      }
+      const ring = poly.top || [];
+      for (let i = 0; i < ring.length - 1; i++) {
+        const a = xy(+ring[i][0], +ring[i][1]);
+        const b = xy(+ring[i + 1][0], +ring[i + 1][1]);
+        let ia = -1, ib = -1, da = Infinity, db = Infinity;
+        for (let v = 0; v < poly.vertices.length; v++) {
+          const p = xy(+poly.vertices[v][0], +poly.vertices[v][1]);
+          const xa = Math.hypot(p[0] - a[0], p[1] - a[1]);
+          const xb = Math.hypot(p[0] - b[0], p[1] - b[1]);
+          if (xa < da) { da = xa; ia = v; }
+          if (xb < db) { db = xb; ib = v; }
+        }
+        if (ia >= 0 && ib >= 0) indices.push(ia, ib, ia + n, ib, ib + n, ia + n);
+      }
+      if (!indices.length) continue;
+      const mesh = makeMesh(`FOREST LAND CHUNK ${count}`, positions, indices, mat);
+      mesh.renderingGroupId = 3;
+      landMeshes.push(mesh);
+      count++;
+    }
+  }
+  return count;
+}
+
+function addLines(name, parts, y, color) {
+  for (let n = 0; n < (parts || []).length; n++) {
+    const part = parts[n];
+    if (!part || part.length < 2) continue;
+    const points = part.map(q => { const p = xy(+q[0], +q[1]); return new BABYLON.Vector3(p[0], y, p[1]); });
+    const line = BABYLON.MeshBuilder.CreateLines(`${name}-${n}`, { points }, scene);
+    line.color = color;
+    line.renderingGroupId = 4;
+    line.metadata = { solvx: true };
+  }
+}
+
+function depthLevels() {
+  const supplied = Array.isArray(data.temperatureDepthsM) ? data.temperatureDepthsM.filter(finite) : [];
+  if (supplied.length) return supplied;
+  const maxM = Math.max(1000, (data.terrain.maxDepthKm || 5) * 1000);
+  const fallback = 32;
+  return Array.from({ length: fallback }, (_, i) => maxM * i / (fallback - 1));
+}
+
+function depthY(meters) {
+  return -meters / 1000 * depthEx * 8;
+}
+
+function layerColor(index, total) {
+  const t = total <= 1 ? 1 : index / (total - 1);
+  return new BABYLON.Color3(
+    0.02 - 0.012 * t,
+    0.55 - 0.43 * t,
+    0.92 - 0.38 * t
+  );
+}
+
+function makeWaterSurface() {
+  if (waterSurface) waterSurface.dispose(false, true);
+  const g = geo();
+  const mesh = BABYLON.MeshBuilder.CreateGround('OPAQUE REALISTIC OCEAN SURFACE', {
+    width: g.width,
+    height: g.height,
+    subdivisions: 180
+  }, scene);
+  mesh.position.set(0, SURFACE_Y, 0);
+  mesh.material = waterMaterial();
+  mesh.renderingGroupId = 2;
+  mesh.metadata = { solvx: true, waterSurface: true };
+  waterSurface = mesh;
+}
+
+function makeWaterLayers() {
+  layerMeshes.forEach(m => m.dispose(false, true));
+  wallMeshes.forEach(m => m.dispose(false, true));
+  layerMeshes = [];
+  wallMeshes = [];
+
+  const g = geo();
+  const levels = depthLevels();
+  const maxDepth = levels[levels.length - 1] || 1000;
+
+  // One opaque horizontal stratum for every temperature depth level.
+  levels.forEach((meters, i) => {
+    const y = depthY(meters);
+    const mesh = BABYLON.MeshBuilder.CreateGround(`WATER DEPTH LEVEL ${i + 1}`, {
+      width: g.width,
+      height: g.height,
+      subdivisions: 1
+    }, scene);
+    mesh.position.set(0, y, 0);
+    const c = layerColor(i, levels.length);
+    const mat = new BABYLON.StandardMaterial(`water depth material ${i + 1}`, scene);
+    mat.diffuseColor = c;
+    mat.emissiveColor = new BABYLON.Color3(c.r * 0.06, c.g * 0.06, c.b * 0.08);
+    mat.specularColor = BABYLON.Color3.Black();
+    mat.alpha = 1;
+    mat.backFaceCulling = false;
+    mesh.material = mat;
+    mesh.renderingGroupId = 1;
+    mesh.metadata = { solvx: true, depthLevel: meters };
+    layerMeshes.push(mesh);
+  });
+
+  // A continuous opaque blue side wall makes the water a solid chunk.
+  const sides = [
+    [[g.minX, 0, g.minZ], [g.maxX, 0, g.minZ]],
+    [[g.maxX, 0, g.minZ], [g.maxX, 0, g.maxZ]],
+    [[g.maxX, 0, g.maxZ], [g.minX, 0, g.maxZ]],
+    [[g.minX, 0, g.maxZ], [g.minX, 0, g.minZ]]
+  ];
+  sides.forEach((s, side) => {
+    const p0 = s[0], p1 = s[1];
+    const positions = [p0[0], 0, p0[2], p1[0], 0, p1[2], p1[0], -maxDepth / 1000 * depthEx * 8, p1[2], p0[0], -maxDepth / 1000 * depthEx * 8, p0[2]];
+    const mat = new BABYLON.StandardMaterial(`ocean wall material ${side}`, scene);
+    mat.diffuseColor = new BABYLON.Color3(0.008, 0.22, 0.58);
+    mat.emissiveColor = new BABYLON.Color3(0.001, 0.02, 0.07);
+    mat.specularColor = BABYLON.Color3.Black();
+    mat.alpha = 1;
+    mat.backFaceCulling = false;
+    const mesh = makeMesh(`SOLID OCEAN CUTAWAY WALL ${side}`, positions, [0, 1, 2, 0, 2, 3], mat);
+    mesh.renderingGroupId = 1;
+    wallMeshes.push(mesh);
+  });
+
+  $('status').dataset.depthCount = String(levels.length);
+  return levels.length;
+}
+
+function setUnderMode(under) {
+  if (waterSurface) waterSurface.setEnabled(!under);
+  wallMeshes.forEach(m => m.setEnabled(true));
+  layerMeshes.forEach(m => m.setEnabled(true));
+  if (seabed) seabed.setEnabled(true);
+}
+
+function fit(mode = '3d') {
+  currentView = mode;
+  const g = geo();
+  const maxDepth = (depthLevels().at(-1) || 1000) / 1000 * depthEx * 8;
+  const horizontal = Math.max(g.width, g.height);
+  const d = Math.max(650, horizontal * 1.22);
+  const targetY = mode === 'under' ? -maxDepth * 0.45 : -maxDepth * 0.18;
+  camera.target.set(0, targetY, 0);
+
+  if (mode === 'top') {
+    camera.alpha = -Math.PI / 2;
+    camera.beta = 0.12;
+    camera.radius = d * 0.98;
+    setUnderMode(false);
+  } else if (mode === 'profile') {
+    camera.alpha = 0;
+    camera.beta = 1.22;
+    camera.radius = d * 1.04;
+    setUnderMode(false);
+  } else if (mode === 'under') {
+    camera.alpha = 0.62;
+    camera.beta = 2.28;
+    camera.radius = d * 0.84;
+    setUnderMode(true);
+  } else {
+    camera.alpha = -0.82;
+    camera.beta = 1.04;
+    camera.radius = d * 1.05;
+    setUnderMode(false);
+  }
+}
+
+function build() {
+  scene.meshes.slice().forEach(m => { if (m.metadata?.solvx) m.dispose(false, true); });
+  landMeshes = [];
+  seabed = makeSeabed();
+  const landCount = makeLand();
+  addLines('coast', data.coast, LAND_TOP_Y + 1.5, new BABYLON.Color3(0.01, 0.09, 0.025));
+  addLines('eez', data.eez, LAND_TOP_Y + 1.2, new BABYLON.Color3(0.95, 0.55, 0.04));
+  makeWaterLayers();
+  makeWaterSurface();
+  fit(currentView);
+  const count = depthLevels().length;
+  const source = data.temperatureDepthsM?.length ? 'temperature.nc' : 'fallback bathymetry';
+  status(`Ocean ready · ${landCount} forest land chunks · ${count} depth levels from ${source}`);
+  $('loading').classList.add('hide');
+}
+
+async function init() {
+  try {
+    if (!window.BABYLON) throw new Error('Babylon.js CDN did not load');
+    const canvas = $('renderCanvas');
+    engine = new BABYLON.Engine(canvas, true, { stencil: true, preserveDrawingBuffer: false }, true);
+    scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.86, 0.91, 0.95, 1);
+
+    const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene);
+    hemi.intensity = 1.35;
+    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.5, -1, -0.4), scene);
+    sun.intensity = 1.8;
+
+    camera = new BABYLON.ArcRotateCamera('camera', -0.82, 1.04, 1500, BABYLON.Vector3.Zero(), scene);
+    camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 30;
+    camera.upperRadiusLimit = 9000;
+    camera.wheelPrecision = 2;
+    camera.panningSensibility = 90;
+
+    status('Loading geometry.json…', 'busy');
+    const response = await fetch(`geometry.json?${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    data = await response.json();
+    if (!data.terrain?.x?.length || !data.terrain?.y?.length) throw new Error('Invalid terrain grid');
+
+    build();
+    engine.runRenderLoop(() => {
+      if (waterBump) {
+        waterBump.uOffset += 0.00035;
+        waterBump.vOffset += 0.00014;
+      }
+      scene.render();
+    });
+    addEventListener('resize', () => engine.resize());
+  } catch (error) {
+    fail(error);
+  }
+}
+
+$('exaggeration').value = 10;
+$('exagValue').textContent = '10×';
+$('exaggeration').addEventListener('input', e => {
+  depthEx = +(e.target.value || 10);
+  $('exagValue').textContent = `${depthEx}×`;
+  build();
+});
+
+$('reset').onclick = () => fit('3d');
+$('fullscreen').onclick = () => document.documentElement.requestFullscreen?.();
+
+document.querySelectorAll('[data-view]').forEach(button => {
+  button.onclick = () => {
+    document.querySelectorAll('[data-view]').forEach(x => x.classList.remove('active'));
+    button.classList.add('active');
+    fit(button.dataset.view);
+  };
+});
+
+init();
 })();
