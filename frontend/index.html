@@ -21,7 +21,7 @@
 <div id="hint" class="ui">Left drag: orbit - Right drag: pan - Scroll: zoom</div>
 <div id="toolbar" class="ui"><button class="btn active" data-view="3d">3D</button><button class="btn" data-view="top">TOP</button><button class="btn" data-view="profile">PROFILE</button><button class="btn" data-view="under">UNDER</button><button class="btn" id="reset">RESET</button><button class="btn" id="fullscreen">FULL</button></div>
 <div id="panel" class="ui">
-<div class="section"><div class="title">Ocean variables</div><div class="sub">Select a live field. Colors are stretched to the actual values present at the selected time.</div><div id="vars" class="vars"></div></div>
+<div class="section"><div class="title">Ocean variables</div><div class="sub">Select a live field. Colors are stretched to the actual minimum and maximum values at the selected time.</div><div id="vars" class="vars"></div></div>
 <div class="section"><div class="title" id="legendTitle">Temperature range</div><div id="legend" class="legend temp"></div><div class="legend-labels"><span id="legendLo">low</span><span id="legendHi">high</span></div></div>
 <div class="section"><div class="title">3D ocean base</div><div class="sub">GEBCO seabed + solid green land + dark-blue ocean volume. Depth layers use bathymetry geometry.</div></div>
 <div class="section"><div class="title">Vertical exaggeration</div><div class="row"><input id="exaggeration" type="range" min="4" max="30" value="10"><span id="exagValue" class="value">10x</span></div></div>
@@ -34,6 +34,6 @@
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
 <script src="babylon-ocean.js"></script>
-<script src="adaptive-fields.js"></script>
+<script src="ocean-fields.js"></script>
 </body>
 </html>
