@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SOLVX — 3D Ocean Explorer</title>
+<title>SOLVX - 3D Ocean Explorer</title>
 <link rel="stylesheet" href="styles.css">
 <style>
 #renderCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
@@ -18,22 +18,23 @@
 <div id="loading"><div class="load"><b>SOLVX</b><div>PREPARING 3D OCEAN</div></div></div>
 <div id="fatal"><b>3D viewer failed to initialize</b><span id="fatalText"></span></div>
 <div id="brand" class="ui"><b>SOLVX</b><small>INTERACTIVE 3D OCEAN EXPLORER</small></div>
-<div id="hint" class="ui">Left drag: orbit · Right drag: pan · Scroll: zoom</div>
+<div id="hint" class="ui">Left drag: orbit - Right drag: pan - Scroll: zoom</div>
 <div id="toolbar" class="ui"><button class="btn active" data-view="3d">3D</button><button class="btn" data-view="top">TOP</button><button class="btn" data-view="profile">PROFILE</button><button class="btn" data-view="under">UNDER</button><button class="btn" id="reset">RESET</button><button class="btn" id="fullscreen">FULL</button></div>
 <div id="panel" class="ui">
-<div class="section"><div class="title">Ocean variables</div><div class="sub">Select a live field. Colors are normalized to the selected dataset and time.</div><div id="vars" class="vars"></div></div>
+<div class="section"><div class="title">Ocean variables</div><div class="sub">Select a live field. Colors use an adaptive percentile/rank scale for the selected dataset and time.</div><div id="vars" class="vars"></div></div>
 <div class="section"><div class="title" id="legendTitle">Temperature range</div><div id="legend" class="legend temp"></div><div class="legend-labels"><span id="legendLo">low</span><span id="legendHi">high</span></div></div>
-<div class="section"><div class="title">3D ocean base</div><div class="sub">GEBCO seabed + solid green land + dark-blue ocean volume. Depth layers use the bathymetry geometry.</div></div>
-<div class="section"><div class="title">Vertical exaggeration</div><div class="row"><input id="exaggeration" type="range" min="4" max="30" value="10"><span id="exagValue" class="value">10×</span></div></div>
-<div class="section"><div class="statusline"><i id="statusDot" class="statusdot"></i><div id="status">Loading ocean data…</div></div></div>
+<div class="section"><div class="title">3D ocean base</div><div class="sub">GEBCO seabed + solid green land + dark-blue ocean volume. Depth layers use bathymetry geometry.</div></div>
+<div class="section"><div class="title">Vertical exaggeration</div><div class="row"><input id="exaggeration" type="range" min="4" max="30" value="10"><span id="exagValue" class="value">10x</span></div></div>
+<div class="section"><div class="statusline"><i id="statusDot" class="statusdot"></i><div id="status">Loading ocean data...</div></div></div>
 </div>
-<div id="readout" class="ui"><div class="rhead"><div><div class="rtitle">Ocean point</div><div id="coords" class="coords">—</div></div><button id="closeReadout" class="close">×</button></div><div id="readoutGrid" class="grid"></div><div id="readoutTime" class="rtime">—</div></div>
-<div id="timeline" class="ui"><div class="topt"><div><strong id="timeValue">Loading timeline…</strong><span id="timeRaw"></span></div><button id="play" class="play">PLAY</button></div><div class="trow"><span class="tlab">TIME</span><input id="timeSlider" type="range" min="0" max="0" value="0" step="1"><span id="timeCount" class="tlab"></span></div><div id="timeScale" class="scale"></div></div>
+<div id="readout" class="ui"><div class="rhead"><div><div class="rtitle">Ocean point</div><div id="coords" class="coords">-</div></div><button id="closeReadout" class="close">x</button></div><div id="readoutGrid" class="grid"></div><div id="readoutTime" class="rtime">-</div></div>
+<div id="timeline" class="ui"><div class="topt"><div><strong id="timeValue">Loading timeline...</strong><span id="timeRaw"></span></div><button id="play" class="play">PLAY</button></div><div class="trow"><span class="tlab">TIME</span><input id="timeSlider" type="range" min="0" max="0" value="0" step="1"><span id="timeCount" class="tlab"></span></div><div id="timeScale" class="scale"></div></div>
 <div id="depthBadge">Surface</div>
 </div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
 <script src="babylon-ocean.js"></script>
 <script src="ocean-data-ui.js"></script>
+<script src="adaptive-fields.js"></script>
 </body>
 </html>
