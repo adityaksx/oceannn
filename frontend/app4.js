@@ -12,70 +12,44 @@ function status(t,type='ok'){if($('status'))$('status').textContent=t;if($('stat
 function fail(e){console.error(e);$('loading')?.classList.add('hidden');if($('fatalText'))$('fatalText').textContent=e?.message||String(e);$('fatal')?.classList.add('show');status(`Viewer failed · ${e?.message||e}`,'error')}
 function dispose(o){if(!o)return;o.traverse(x=>{if(x.geometry)x.geometry.dispose();if(x.material){if(Array.isArray(x.material))x.material.forEach(m=>m.dispose());else x.material.dispose()}});o.parent?.remove(o)}
 
-// Positive Y is land/north, negative Y is ocean/south. Depth is negative Z.
+// World mapping: longitude = X, latitude = Y, depth = negative Y.
 function depthZ(m){return-Math.max(0,n(m))*S.depthEx/1000}
-function xy(lon,lat){
-  const b=S.g.bounds,midLat=(b[2]+b[3])/2,kmLon=111.32*Math.cos(midLat*Math.PI/180);
-  return[(n(lon)-(b[0]+b[1])/2)*kmLon,(n(lat)-(b[2]+b[3])/2)*111.32];
-}
-function polyGeo(parts,z){const p=[],ix=[];let base=0;for(const a of parts||[]){for(const v of a.vertices||[])p.push(n(v[0]),z,n(v[1]));for(const t of a.triangles||[])ix.push(base+t[0],base+t[1],base+t[2]);base+=(a.vertices||[]).length}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setIndex(ix);return g}
-function lineGeo(lines,z){const p=[];for(const l of lines||[])for(let i=0;i<l.length-1;i++)p.push(n(l[i][0]),z,n(l[i][1]),n(l[i+1][0]),z,n(l[i+1][1]));const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));return g}
+function polyGeo(parts,y){const p=[],ix=[];let base=0;for(const a of parts||[]){for(const v of a.vertices||[])p.push(n(v[0]),y,n(v[1]));for(const t of a.triangles||[])ix.push(base+t[0],base+t[1],base+t[2]);base+=(a.vertices||[]).length}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setIndex(ix);return g}
+function lineGeo(lines,y){const p=[];for(const l of lines||[])for(let i=0;i<l.length-1;i++)p.push(n(l[i][0]),y,n(l[i][1]),n(l[i+1][0]),y,n(l[i+1][1]));const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));return g}
 
-// Build land as a true prism. The top follows coastline/land polygons at sea level;
-// the exposed side walls only exist under the actual land footprint, never across water.
 function drawLand(){
  dispose(S.land);dispose(S.landSides);dispose(S.landBottom);
  const parts=[...(S.g.land||[]),...(S.g.islands||[])];
- const top=0.42;
- const thickness=Math.max(0.35,n(S.g.landThickness||3)*S.depthEx/1000);
+ const top=0;
+ const thickness=Math.max(.35,n(S.g.landThickness||3)*S.depthEx/1000);
  const bottom=top-thickness;
-
- S.land=new THREE.Mesh(polyGeo(parts,top),new THREE.MeshStandardMaterial({color:0x2fba49,roughness:.9,side:THREE.DoubleSide}));
- S.land.renderOrder=60;S.root.add(S.land);
-
+ const landMat=new THREE.MeshStandardMaterial({color:0x35b94d,roughness:1,metalness:0,side:THREE.DoubleSide});
+ const sideMat=new THREE.MeshStandardMaterial({color:0x9b744e,roughness:1,metalness:0,side:THREE.DoubleSide});
+ S.land=new THREE.Mesh(polyGeo(parts,top),landMat);S.land.renderOrder=60;S.root.add(S.land);
  const p=[],ix=[];
- for(const part of parts){
-   const r=part.top||[];
-   if(r.length<2)continue;
-   for(let i=0;i<r.length-1;i++){
-     const a=r[i],b=r[i+1],q=p.length/3;
-     p.push(n(a[0]),top,n(a[1]), n(a[0]),bottom,n(a[1]), n(b[0]),top,n(b[1]), n(b[0]),bottom,n(b[1]));
-     ix.push(q,q+2,q+1,q+2,q+3,q+1);
-   }
- }
- const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(p,3));sg.setIndex(ix);
- S.landSides=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({color:0x744925,roughness:1,side:THREE.DoubleSide}));
- S.landSides.renderOrder=55;S.root.add(S.landSides);
-
- S.landBottom=new THREE.Mesh(polyGeo(parts,bottom),new THREE.MeshStandardMaterial({color:0x5b391f,roughness:1,side:THREE.DoubleSide}));
- S.landBottom.renderOrder=54;S.root.add(S.landBottom);
+ for(const part of parts){const r=part.top||[];for(let i=0;i<r.length-1;i++){const a=r[i],b=r[i+1],q=p.length/3;p.push(n(a[0]),top,n(a[1]),n(a[0]),bottom,n(a[1]),n(b[0]),top,n(b[1]),n(b[0]),bottom,n(b[1]));ix.push(q,q+2,q+1,q+2,q+3,q+1)}}
+ const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(p,3));sg.setIndex(ix);S.landSides=new THREE.Mesh(sg,sideMat);S.landSides.renderOrder=55;S.root.add(S.landSides);
+ S.landBottom=new THREE.Mesh(polyGeo(parts,bottom),sideMat);S.landBottom.renderOrder=54;S.root.add(S.landBottom);
 }
 
 function drawCoast(){
  dispose(S.coast);
  const lines=[...(S.g.coast||[]),...(S.g.landBoundary||[]),...(S.g.islandCoast||[])];
- S.coast=new THREE.LineSegments(lineGeo(lines,.48),new THREE.LineBasicMaterial({color:0x102d1b}));
- S.coast.renderOrder=90;S.root.add(S.coast);
+ S.coast=new THREE.LineSegments(lineGeo(lines,.012),new THREE.LineBasicMaterial({color:0x17331f}));S.coast.renderOrder=90;S.root.add(S.coast);
 }
 
 function drawSeabed(){
  dispose(S.seabed);
  const t=S.g.terrain,nx=t.x.length,ny=t.y.length,p=[],ix=[],map=new Int32Array(nx*ny);map.fill(-1);
- for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
-   const d=n((t.rawDepthKm[j]||[])[i]);
-   if(!finite(d)||d<=0)continue;
-   map[j*nx+i]=p.length/3;p.push(t.x[i],depthZ(d*1000),t.y[j]);
- }
- for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
-   const a=map[j*nx+i],b=map[j*nx+i+1],c=map[(j+1)*nx+i],d=map[(j+1)*nx+i+1];
-   if(a>=0&&b>=0&&c>=0&&d>=0)ix.push(a,c,b,b,c,d);
- }
+ for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const d=n((t.rawDepthKm[j]||[])[i]);if(!finite(d)||d<=0)continue;map[j*nx+i]=p.length/3;p.push(t.x[i],depthZ(d*1000),t.y[j])}
+ for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=map[j*nx+i],b=map[j*nx+i+1],c=map[(j+1)*nx+i],d=map[(j+1)*nx+i+1];if(a>=0&&b>=0&&c>=0&&d>=0)ix.push(a,c,b,b,c,d)}
  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setIndex(ix);g.computeVertexNormals();
- S.seabed=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x85572f,roughness:1,side:THREE.DoubleSide}));S.seabed.renderOrder=8;S.root.add(S.seabed);
+ // Light soil / sand color. No dark brown.
+ S.seabed=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0xc7a477,roughness:.95,metalness:0,side:THREE.DoubleSide}));S.seabed.renderOrder=8;S.root.add(S.seabed);
 }
 
-// Water is clipped cell-by-cell from bathymetry. A cell exists only when all four
-// GEBCO corners are ocean depths, so no rectangular water volume can cross land/coast.
+// Real water volume: one prism per bathymetry cell, top at sea level and bottom at local seabed.
+// Cells touching land are omitted, so water cannot cover land.
 function buildWater(){
  dispose(S.water);S.water=new THREE.Group();
  const t=S.g.terrain,nx=t.x.length,ny=t.y.length,raw=t.rawDepthKm;
@@ -84,90 +58,48 @@ function buildWater(){
    const i2=Math.min(nx-1,i+step),j2=Math.min(ny-1,j+step);
    const corners=[n((raw[j]||[])[i]),n((raw[j]||[])[i2]),n((raw[j2]||[])[i]),n((raw[j2]||[])[i2])];
    if(!corners.every(v=>Number.isFinite(v)&&v>0.005))continue;
-   const depthKm=Math.min(...corners); const h=Math.abs(depthZ(depthKm*1000));
-   if(h<0.08)continue;
+   const depthKm=Math.min(...corners),h=Math.abs(depthZ(depthKm*1000));if(h<.08)continue;
    cells.push({x:(t.x[i]+t.x[i2])/2,y:(t.y[j]+t.y[j2])/2,sx:Math.max(.25,Math.abs(t.x[i2]-t.x[i])*.995),sy:Math.max(.25,Math.abs(t.y[j2]-t.y[j])*.995),h,depthKm});
  }
  if(!cells.length)throw Error('No ocean cells were found in GEBCO geometry');
  const box=new THREE.BoxGeometry(1,1,1);
- const mat=new THREE.MeshPhysicalMaterial({color:0x198db5,transparent:true,opacity:.27,roughness:.15,metalness:0,transmission:.08,ior:1.333,depthWrite:false,side:THREE.DoubleSide});
+ const mat=new THREE.MeshPhysicalMaterial({color:0x168fba,transparent:true,opacity:.34,roughness:.12,metalness:0,transmission:.04,ior:1.333,depthWrite:false,side:THREE.DoubleSide});
  const mesh=new THREE.InstancedMesh(box,mat,cells.length),dummy=new THREE.Object3D();
- for(let k=0;k<cells.length;k++){
-   const c=cells[k];dummy.position.set(c.x,topSeaLevel(),c.y);dummy.scale.set(c.sx,c.h,c.sy);dummy.position.y=-c.h/2;dummy.updateMatrix();mesh.setMatrixAt(k,dummy.matrix);
- }
- mesh.instanceMatrix.needsUpdate=true;mesh.userData={isWater:true,cells};mesh.renderOrder=20;S.water.add(mesh);S.root.add(S.water);box.dispose();
+ for(let k=0;k<cells.length;k++){const c=cells[k];dummy.position.set(c.x,-c.h/2,c.y);dummy.scale.set(c.sx,c.h,c.sy);dummy.updateMatrix();mesh.setMatrixAt(k,dummy.matrix)}
+ mesh.instanceMatrix.needsUpdate=true;mesh.userData={isWater:true,cells};mesh.renderOrder=20;S.water.add(mesh);S.root.add(S.water);
+ // Keep the geometry for raycasting; do not dispose the shared box.
 }
-function topSeaLevel(){return 0;}
 
-// Exact rectangle-chunk walls. Crucially, they are NOT allowed to act as a land wall.
-// They are just exposed geological end faces below the lowest real seabed point.
 function drawChunkBase(){
  dispose(S.chunkSides);dispose(S.chunkBottom);
- const b=S.g.bounds,mid=(b[2]+b[3])/2,klon=111.32*Math.cos(mid*Math.PI/180);
- const x0=(b[0]-midLon())*klon,x1=(b[1]-midLon())*klon;
- const y0=(b[2]-(b[2]+b[3])/2)*111.32,y1=(b[3]-(b[2]+b[3])/2)*111.32;
- function midLon(){return(b[0]+b[1])/2}
+ const b=S.g.bounds,midLat=(b[2]+b[3])/2,klon=111.32*Math.cos(midLat*Math.PI/180);
+ const x0=(b[0]-(b[0]+b[1])/2)*klon,x1=(b[1]-(b[0]+b[1])/2)*klon;
+ const z0=(b[2]-(b[2]+b[3])/2)*111.32,z1=(b[3]-(b[2]+b[3])/2)*111.32;
  const maxDepth=Math.max(1,n(S.g.terrain?.maxDepthKm||1));
- const baseZ=depthZ(maxDepth+1.5*1);
- const p=[x0,0,y0,x1,0,y0,x1,0,y1,x0,0,y1,x0,baseZ,y0,x1,baseZ,y0,x1,baseZ,y1,x0,baseZ,y1];
- const ix=[0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7];
- const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setIndex(ix);
- S.chunkSides=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0x654126,side:THREE.DoubleSide}));S.chunkSides.renderOrder=1;S.root.add(S.chunkSides);
- const bg=new THREE.BufferGeometry();bg.setAttribute('position',new THREE.Float32BufferAttribute([x0,baseZ,y0,x1,baseZ,y0,x1,baseZ,y1,x0,baseZ,y1],3));bg.setIndex([0,2,1,0,3,2]);
- S.chunkBottom=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({color:0x54351f,side:THREE.DoubleSide}));S.chunkBottom.renderOrder=0;S.root.add(S.chunkBottom);
+ const baseY=depthZ(maxDepth+1.5);
+ // The chunk itself is only a geological closure below the seabed; it is never rendered over the land footprint.
+ const p=[x0,baseY,z0,x1,baseY,z0,x1,baseY,z1,x0,baseY,z1];
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setIndex([0,2,1,0,3,2]);
+ S.chunkBottom=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x9b744e,roughness:1,side:THREE.DoubleSide}));S.chunkBottom.renderOrder=0;S.root.add(S.chunkBottom);
 }
 
 function renderVars(){
- const host=$('vars');if(!host)return;host.innerHTML='';
- const icons={temperature:'T',temperature_anomaly:'∆',salinity:'S',currents:'C',sea_level:'η',chlorophyll:'Ch'};
- for(const x of S.catalog){
-   const b=document.createElement('button');b.className=`var ${x.id===S.active?'active':''} ${x.available===false?'off':''}`;b.disabled=x.available===false;
-   b.innerHTML=`<span class="vicon">${icons[x.id]||'•'}</span><span><b>${x.label||x.id}</b><small>${x.units||'inspection only'}</small></span><span class="dot"></span>`;
-   b.onclick=()=>{S.active=x.id;renderVars();status(`${x.label||x.id} · inspection only`)};host.appendChild(b);
- }
+ const host=$('vars');if(!host)return;host.innerHTML='';const icons={temperature:'T',temperature_anomaly:'∆',salinity:'S',currents:'C',sea_level:'η',chlorophyll:'Ch'};
+ for(const x of S.catalog){const b=document.createElement('button');b.className=`var ${x.id===S.active?'active':''} ${x.available===false?'off':''}`;b.disabled=x.available===false;b.innerHTML=`<span class="vicon">${icons[x.id]||'•'}</span><span><b>${x.label||x.id}</b><small>${x.units||'inspection only'}</small></span><span class="dot"></span>`;b.onclick=()=>{S.active=x.id;renderVars();status(`${x.label||x.id} · inspection only`)};host.appendChild(b)}
 }
 function fmt(v,u){if(!finite(v))return'—';const x=n(v);return`${x.toFixed(Math.abs(x)<1?4:2)} ${u||''}`.trim()}
-function showPoint(data,lon,lat){
- const v=data?.values||data;
- $('coords').textContent=`${n(lat).toFixed(4)}° N · ${n(lon).toFixed(4)}° E`;
- const rows=[['Temperature',v.temperature,'°C'],['Salinity',v.salinity,'PSU'],['Chlorophyll',v.chlorophyll,'mg m⁻³'],['Sea level',v.sea_level??v.seaLevel,'m'],['SST anomaly',v.temperature_anomaly??v.sst_anomaly,'°C']];
- $('readoutGrid').innerHTML=rows.map(r=>`<div class="rval"><b>${r[0]}</b><span>${fmt(r[1],r[2])}</span></div>`).join('');
- $('readoutTime').textContent=data?.time||S.times[S.ti]||'Current time';$('readout')?.classList.remove('hidden');
-}
-async function inspect(lon,lat){try{status('Reading ocean point…','busy');const q=new URLSearchParams({lon:String(lon),lat:String(lat)});if(S.times[S.ti])q.set('time',S.times[S.ti]);showPoint(await json(`${API}/ocean/point?${q}`),lon,lat);status('Ocean point inspected')}catch(e){status(`Point lookup failed · ${e.message}`,'error')}}
-function clickOcean(e){
- if(!S.water)return;const r=S.renderer.domElement.getBoundingClientRect();S.mouse.x=(e.clientX-r.left)/r.width*2-1;S.mouse.y=-(e.clientY-r.top)/r.height*2+1;S.ray.setFromCamera(S.mouse,S.camera);
- const hit=S.ray.intersectObjects(S.water.children,true).find(h=>h.object?.userData?.isWater&&h.instanceId!=null);if(!hit)return;
- const c=hit.object.userData.cells[hit.instanceId],b=S.g.bounds,ml=(b[2]+b[3])/2,klon=111.32*Math.cos(ml*Math.PI/180);
- inspect((b[0]+b[1])/2+c.x/klon,(b[2]+b[3])/2+c.y/111.32);
-}
+function showPoint(data,lon,lat){const v=data?.values||data;$('coords').textContent=`${n(lat).toFixed(4)}° N · ${n(lon).toFixed(4)}° E`;const rows=[['Temperature',v.temperature,'°C'],['Salinity',v.salinity,'PSU'],['Chlorophyll',v.chlorophyll,'mg m⁻³'],['Sea level',v.sea_level??v.seaLevel,'m'],['SST anomaly',v.temperature_anomaly??v.sst_anomaly,'°C']];$('readoutGrid').innerHTML=rows.map(r=>`<div class="rval"><b>${r[0]}</b><span>${fmt(r[1],r[2])}</span></div>`).join('');$('readoutTime').textContent=data?.time||S.times[S.ti]||'Current time';$('readout')?.classList.remove('hidden')}
+async function inspect(lon,lat){try{status('Reading ocean point…','busy');const q=new URLSearchParams({longitude:String(lon),latitude:String(lat)});if(S.times[S.ti])q.set('time',S.times[S.ti]);showPoint(await json(`${API}/ocean/point?${q}`),lon,lat);status('Ocean point inspected')}catch(e){status(`Point lookup failed · ${e.message}`,'error')}}
+function clickOcean(e){if(!S.water)return;const r=S.renderer.domElement.getBoundingClientRect();S.mouse.x=(e.clientX-r.left)/r.width*2-1;S.mouse.y=-(e.clientY-r.top)/r.height*2+1;S.ray.setFromCamera(S.mouse,S.camera);const hit=S.ray.intersectObjects(S.water.children,true).find(h=>h.object?.userData?.isWater&&h.instanceId!=null);if(!hit)return;const c=hit.object.userData.cells[hit.instanceId],b=S.g.bounds,ml=(b[2]+b[3])/2,klon=111.32*Math.cos(ml*Math.PI/180);inspect((b[0]+b[1])/2+c.x/klon,(b[2]+b[3])/2+c.y/111.32)}
 
 function fit(){
- const box=new THREE.Box3().setFromObject(S.root);if(box.isEmpty())return;
- const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3());
- const horizontal=Math.max(s.x,s.z,1),vertical=Math.max(s.y,1);
- const r=Math.max(horizontal,vertical);
- S.controls.target.set(c.x,c.y*0.25,c.z);
- // Deliberate orientation: north/land is farther (+z in screen-space), south/ocean is near.
- S.camera.position.set(c.x-r*0.92,c.y-r*0.58,c.z+r*0.98);S.camera.lookAt(S.controls.target);S.controls.update();
+ const box=new THREE.Box3().setFromObject(S.root);if(box.isEmpty())return;const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3());const horizontal=Math.max(s.x,s.z,1),vertical=Math.max(s.y,1),r=Math.max(horizontal,vertical);S.controls.target.set(c.x,c.y*.15,c.z);
+ // Deliberately keep land/north toward the rear and ocean/south toward the viewer.
+ S.camera.position.set(c.x-r*.95,c.y-r*.62,c.z+r*1.05);S.camera.lookAt(S.controls.target);S.controls.update();
 }
-function views(){
- document.querySelectorAll('#views .view').forEach(b=>b.onclick=()=>{
-   const box=new THREE.Box3().setFromObject(S.root),c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()),r=Math.max(s.x,s.z,s.y,1),v=b.dataset.view;
-   if(v==='top')S.camera.position.set(c.x,c.y+r*1.5,c.z);
-   else if(v==='profile')S.camera.position.set(c.x-r*1.55,c.y,c.z);
-   else if(v==='under')S.camera.position.set(c.x-r*.70,c.y-r*.55,c.z-r*1.15);
-   else S.camera.position.set(c.x-r*.92,c.y-r*.58,c.z+r*.98);
-   S.controls.target.copy(c);S.controls.update();document.querySelectorAll('#views .view').forEach(x=>x.classList.remove('active'));b.classList.add('active');
- });
-}
+function views(){document.querySelectorAll('#views .view').forEach(b=>b.onclick=()=>{const box=new THREE.Box3().setFromObject(S.root),c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3()),r=Math.max(s.x,s.z,s.y,1),v=b.dataset.view;if(v==='top')S.camera.position.set(c.x,c.y+r*1.55,c.z);else if(v==='profile')S.camera.position.set(c.x-r*1.55,c.y,c.z);else if(v==='under')S.camera.position.set(c.x-r*.7,c.y-r*.58,c.z-r*1.2);else S.camera.position.set(c.x-r*.95,c.y-r*.62,c.z+r*1.05);S.controls.target.copy(c);S.controls.update();document.querySelectorAll('#views .view').forEach(x=>x.classList.remove('active'));b.classList.add('active')})}
 function timeUI(){const t=S.times[S.ti]||'';if($('timeValue'))$('timeValue').textContent=t?new Date(t).toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'}):'Ocean time';if($('timeRaw'))$('timeRaw').textContent=t||'—';if($('timeSlider')){$('timeSlider').max=Math.max(0,S.times.length-1);$('timeSlider').value=S.ti}if($('timeCount'))$('timeCount').textContent=`${S.ti+1}/${Math.max(1,S.times.length)}`}
-function ui(){
- $('reset')?.addEventListener('click',fit);$('fullscreen')?.addEventListener('click',()=>document.documentElement.requestFullscreen?.());$('closeReadout')?.addEventListener('click',()=>$('readout')?.classList.add('hidden'));
- $('renderCanvas')?.addEventListener('click',clickOcean);
- $('exaggeration')?.addEventListener('input',e=>{S.depthEx=n(e.target.value);if($('exagValue'))$('exagValue').textContent=`${S.depthEx}×`;drawLand();drawSeabed();buildWater();drawChunkBase();fit()});
- $('play')?.addEventListener('click',()=>{S.playing=!S.playing;$('play').textContent=S.playing?'PAUSE':'PLAY'});$('timeSlider')?.addEventListener('input',e=>{S.ti=n(e.target.value);timeUI()});
-}
+function ui(){$('reset')?.addEventListener('click',fit);$('fullscreen')?.addEventListener('click',()=>document.documentElement.requestFullscreen?.());$('closeReadout')?.addEventListener('click',()=>$('readout')?.classList.add('hidden'));$('renderCanvas')?.addEventListener('click',clickOcean);$('exaggeration')?.addEventListener('input',e=>{S.depthEx=n(e.target.value);if($('exagValue'))$('exagValue').textContent=`${S.depthEx}×`;drawLand();drawSeabed();buildWater();drawChunkBase();drawCoast();fit()});$('play')?.addEventListener('click',()=>{S.playing=!S.playing;$('play').textContent=S.playing?'PAUSE':'PLAY'});$('timeSlider')?.addEventListener('input',e=>{S.ti=n(e.target.value);timeUI()})}
 function animate(ms=0){requestAnimationFrame(animate);if(S.playing&&S.times.length>1&&ms-S.lastPlay>900){S.lastPlay=ms;S.ti=(S.ti+1)%S.times.length;timeUI()}S.controls?.update();S.renderer?.render(S.scene,S.camera)}
 
 async function init(){
@@ -176,7 +108,7 @@ async function init(){
  S.scene=new THREE.Scene();S.scene.background=new THREE.Color(0xb9dfe9);S.scene.fog=new THREE.Fog(0xb9dfe9,1600,6500);
  S.camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.1,100000);
  S.renderer=new THREE.WebGLRenderer({canvas:$('renderCanvas'),antialias:true,powerPreference:'high-performance'});S.renderer.setPixelRatio(Math.min(devicePixelRatio,2));S.renderer.setSize(innerWidth,innerHeight);S.renderer.outputColorSpace=THREE.SRGBColorSpace;
- S.scene.add(new THREE.HemisphereLight(0xffffff,0x49636b,2));const sun=new THREE.DirectionalLight(0xffffff,2.2);sun.position.set(500,800,900);S.scene.add(sun);
+ S.scene.add(new THREE.HemisphereLight(0xffffff,0x49636b,2));const sun=new THREE.DirectionalLight(0xffffff,2.4);sun.position.set(-500,900,1000);S.scene.add(sun);
  S.root=new THREE.Group();S.scene.add(S.root);
  drawSeabed();drawLand();drawCoast();buildWater();drawChunkBase();
  S.controls=new OrbitControls(S.camera,S.renderer.domElement);S.controls.enableDamping=true;S.controls.dampingFactor=.055;S.controls.screenSpacePanning=true;S.controls.minDistance=80;S.controls.maxDistance=9000;S.controls.target.set(0,0,0);
