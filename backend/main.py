@@ -6,7 +6,7 @@ import xarray as xr
 from fastapi import FastAPI,HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 DATA_DIR=Path(__file__).resolve().parent.parent/'data'/'model'
-app=FastAPI(title='SolvX Ocean Data API',description='API for interactive 3D ocean visualization',version='2.2.5')
+app=FastAPI(title='SolvX Ocean Data API',description='API for interactive 3D ocean visualization',version='2.3.0')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_credentials=False,allow_methods=['GET','OPTIONS'],allow_headers=['*'])
 def get_nc_files(): return sorted(DATA_DIR.glob('*.nc'))
 def find_file(filename):
@@ -32,8 +32,13 @@ def normalize_time_coordinate(data):
  if 'time' not in data.dims or 'time' not in data.coords:return data
  raw=data.time.values
  try:
-  if np.issubdtype(np.asarray(raw).dtype,np.number):raw=pd.to_datetime(raw,unit='ns',utc=True)
-  else:raw=pd.to_datetime(raw,utc=True)
+  if np.issubdtype(np.asarray(raw).dtype,np.number):
+   units=str(data.time.attrs.get('units','')).lower()
+   if 'since' in units:
+    try: raw=xr.coding.times.decode_cf_datetime(raw,units,data.time.attrs.get('calendar','standard'))
+    except Exception: raw=pd.to_datetime(raw,unit='ns',utc=True)
+   else: raw=pd.to_datetime(raw,unit='ns',utc=True)
+  else: raw=pd.to_datetime(raw,utc=True)
   return data.assign_coords(time=('time',pd.DatetimeIndex(raw).tz_localize(None).to_numpy(dtype='datetime64[ns]')))
  except Exception as e:raise HTTPException(422,detail=f'Could not normalize NetCDF time coordinate: {e}')
 def normalize_time_value(value):
@@ -55,16 +60,18 @@ def coord_slice(data,dim,lo,hi):
  if dim not in data.dims or lo is None or hi is None:return data
  if dim=='time':data=normalize_time_coordinate(data);lo,hi=normalize_time_value(lo),normalize_time_value(hi)
  c=data[dim].values
- return data.sel({dim:slice(lo,hi) if not c.size or c[0]<=c[-1] else slice(hi,lo)})
+ if not c.size:return data
+ return data.sel({dim:slice(lo,hi) if c[0]<=c[-1] else slice(hi,lo)})
 def select(data,lat_min=None,lat_max=None,lon_min=None,lon_max=None,depth_min=None,depth_max=None,time_start=None,time_end=None):
- for d,lo,hi in [('latitude',lat_min,lat_max),('longitude',lon_min,lon_max),('depth',depth_min,depth_max)]:data=coord_slice(data,d,lo,hi)
+ for d,lo,hi in [('latitude',lat_min,lat_max),('longitude',lon_min,lon_max),('depth',depth_min,depth_max),('lat',lat_min,lat_max),('lon',lon_min,lon_max)]:
+  if lo is not None and hi is not None:data=coord_slice(data,d,lo,hi)
  return coord_slice(data,'time',time_start,time_end)
 def aliases(file_name,var_name):
  text,var=f'{file_name} {var_name}'.lower(),var_name.lower()
  if 'temperature' in text and 'anomaly' not in text and 'anamoly' not in text:return 'temperature'
  if 'anamoly' in text or 'anomaly' in text:return 'temperature_anomaly'
  if 'salinity' in text:return 'salinity'
- if 'current' in text or var in {'uo','vo','u','v','uoce','voce'}:return 'currents'
+ if 'current' in text or var in {'uo','vo','u','v','uoce','voce','ucur','vcur'}:return 'currents'
  if 'sea level' in text or var in {'zos','ssh','sla'}:return 'sea_level'
  if 'chlorophyll' in text or var in {'chl','chlor_a','chlorophyll'}:return 'chlorophyll'
  return None
@@ -83,11 +90,17 @@ def find_current_components():
  for f,items in groups.items():
   u=v=None
   for n,a in items:
-   s,std=n.lower(),str(a.get('standard_name','')).lower()
-   if u is None and (s in {'uo','u'} or 'eastward' in s or 'eastward' in std):u=n
-   if v is None and (s in {'vo','v'} or 'northward' in s or 'northward' in std):v=n
+   name=n.lower();std=str(a.get('standard_name','')).lower();long=str(a.get('long_name','')).lower()
+   if u is None and (name in {'uo','u','ucur'} or 'eastward' in std or 'eastward' in long):u=n
+   if v is None and (name in {'vo','v','vcur'} or 'northward' in std or 'northward' in long):v=n
   if u and v:return f,u,v
  return None,None,None
+def select_surface(data):
+ for dim in ('depth','deptht','depthu','depthv','depthw','lev','level','z'):
+  if dim in data.dims:
+   try:return data.sel({dim:0},method='nearest')
+   except Exception:return data.isel({dim:0})
+ return data
 @app.get('/')
 def root():return {'name':'SolvX Ocean Data API','status':'running','docs':'/docs','version':app.version}
 @app.get('/datasets')
@@ -113,6 +126,11 @@ def ocean_catalog():
  labels=[('temperature','Temperature'),('temperature_anomaly','Sea surface temperature anomaly'),('salinity','Salinity'),('currents','Currents'),('sea_level','Sea level'),('chlorophyll','Chlorophyll')];out=[]
  for logical,label in labels:
   m=find_logical(logical)
+  if logical=='currents':
+   f,u,v=find_current_components()
+   if f:
+    with xr.open_dataset(f) as ds:
+     a=ds[u].attrs;out.append({'id':logical,'label':label,'available':True,'file':f.name,'variable':u,'components':{'u':u,'v':v},'units':a.get('units'),'long_name':'Eastward/northward current components','standard_name':'sea_water_velocity','dimensions':list(ds[u].dims),'shape':list(ds[u].shape),'matches':[{'file':f.name,'variable':u},{'file':f.name,'variable':v}]});continue
   if not m:out.append({'id':logical,'label':label,'available':False,'reason':'No matching NetCDF variable found'});continue
   f,n,a,d,s=m[0];out.append({'id':logical,'label':label,'available':True,'file':f.name,'variable':n,'units':a.get('units'),'long_name':a.get('long_name'),'standard_name':a.get('standard_name'),'dimensions':d,'shape':s,'matches':[{'file':x[0].name,'variable':x[1],'units':x[2].get('units'),'dimensions':x[3],'shape':x[4]} for x in m]})
  return {'variables':out}
@@ -135,33 +153,38 @@ def ocean_current_grid(time:Optional[str]=None,depth:Optional[float]=None,stride
    if 'depth' in v.dims:v=v.sel(depth=depth,method='nearest')
   yd='latitude' if 'latitude' in u.dims else 'lat' if 'lat' in u.dims else None;xd='longitude' if 'longitude' in u.dims else 'lon' if 'lon' in u.dims else None
   if not yd or not xd:raise HTTPException(422,detail='Current dataset has no latitude/longitude dimensions')
-  u=u.isel({yd:slice(None,None,max(1,min(stride,20))),xd:slice(None,None,max(1,min(stride,20)))}).squeeze();v=v.isel({yd:slice(None,None,max(1,min(stride,20))),xd:slice(None,None,max(1,min(stride,20)))}).squeeze();lat,lon=u.coords[yd],u.coords[xd]
+  stride=max(1,min(stride,20));u=u.isel({yd:slice(None,None,stride),xd:slice(None,None,stride)}).squeeze();v=v.isel({yd:slice(None,None,stride),xd:slice(None,None,stride)}).squeeze();lat,lon=u.coords[yd],u.coords[xd]
   return {'file':f.name,'u_variable':u_name,'v_variable':v_name,'latitude':sanitize(lat.values),'longitude':sanitize(lon.values),'u':sanitize(np.asarray(u.values,dtype=np.float32)),'v':sanitize(np.asarray(v.values,dtype=np.float32)),'units':u.attrs.get('units') or v.attrs.get('units')}
 @app.get('/ocean/point')
 def ocean_point(latitude:float,longitude:float,time:Optional[str]=None):
  result=[]
  for logical,label in [('temperature','Temperature'),('temperature_anomaly','SST anomaly'),('salinity','Salinity'),('currents','Currents'),('sea_level','Sea level'),('chlorophyll','Chlorophyll')]:
-  m=find_logical(logical)
-  if not m:result.append({'id':logical,'label':label,'available':False,'value':None});continue
-  f,n,a,d,_=m[0]
   try:
-   with xr.open_dataset(f) as ds:
-    if logical=='currents':
-     values={}
-     for mf,cn,*_ in m:
-      if mf!=f or cn not in ds.data_vars:continue
-      q=ds[cn]
+   if logical=='currents':
+    cf,un,vn=find_current_components()
+    if not cf:result.append({'id':logical,'label':label,'available':False,'value':None});continue
+    with xr.open_dataset(cf) as ds:
+     vals={}
+     for name in (un,vn):
+      q=ds[name]
       for dim,val in [('latitude',latitude),('longitude',longitude),('lat',latitude),('lon',longitude)]:
        if dim in q.dims:q=q.sel({dim:val},method='nearest')
       if time is not None:q=select_time(q,time)
-      if q.ndim==0:values[cn]=sanitize(q.values)
-     result.append({'id':logical,'label':label,'available':True,'units':a.get('units'),'value':values,'depth_dependent':'depth' in d});continue
+      q=select_surface(q)
+      if q.ndim==0:vals[name]=sanitize(q.values)
+     result.append({'id':logical,'label':label,'available':True,'units':ds[un].attrs.get('units') or ds[vn].attrs.get('units'),'value':vals,'depth_dependent':('depth' in ds[un].dims or 'depth' in ds[vn].dims)})
+    continue
+   m=find_logical(logical)
+   if not m:result.append({'id':logical,'label':label,'available':False,'value':None});continue
+   f,n,a,d,_=m[0]
+   with xr.open_dataset(f) as ds:
     q=ds[n]
     for dim,val in [('latitude',latitude),('longitude',longitude),('lat',latitude),('lon',longitude)]:
      if dim in q.dims:q=q.sel({dim:val},method='nearest')
     if time is not None:q=select_time(q,time)
-    if q.ndim:q=q.isel({d:0 for d in q.dims})
-    result.append({'id':logical,'label':label,'available':True,'units':a.get('units'),'value':sanitize(q.values),'depth_dependent':'depth' in d})
+    q=select_surface(q)
+    if q.ndim:q=q.isel({dim:0 for dim in q.dims})
+    result.append({'id':logical,'label':label,'available':True,'units':a.get('units'),'value':sanitize(q.values),'depth_dependent':any(dim in d for dim in ('depth','deptht','depthu','depthv','depthw','lev','level','z'))})
   except Exception as e:result.append({'id':logical,'label':label,'available':False,'value':None,'error':str(e)})
  return {'latitude':latitude,'longitude':longitude,'time':time,'values':result}
 @app.get('/data/point')
@@ -172,20 +195,20 @@ def get_point(file:str,variable:str,latitude:Optional[float]=None,longitude:Opti
   for dim,value in [('latitude',latitude),('longitude',longitude),('lat',latitude),('lon',longitude),('depth',depth)]:
    if value is not None and dim in data.dims:data=data.sel({dim:value},method='nearest')
   if time is not None:data=select_time(data,time)
-  if data.ndim==0:
-   return {'variable':variable,'value':sanitize(data.item()),'coordinates':{k:sanitize(v.item() if getattr(v,'ndim',1)==0 else v.values) for k,v in data.coords.items()}}
+  if data.ndim==0:return {'variable':variable,'value':sanitize(data.item()),'coordinates':{k:sanitize(v.item() if getattr(v,'ndim',1)==0 else v.values) for k,v in data.coords.items()}}
   if data.size>10000:raise HTTPException(413,detail={'error':'Too much data requested','remaining_dimensions':dict(data.sizes)})
-  frame=data.to_dataframe(name=variable).reset_index().replace({np.nan:None})
-  return {'variable':variable,'dimensions':list(data.dims),'shape':list(data.shape),'data':frame.to_dict(orient='records')}
+  frame=data.to_dataframe(name=variable).reset_index().replace({np.nan:None});return {'variable':variable,'dimensions':list(data.dims),'shape':list(data.shape),'data':frame.to_dict(orient='records')}
 @app.get('/data/region')
 def get_region(file:str,variable:str,lat_min:Optional[float]=None,lat_max:Optional[float]=None,lon_min:Optional[float]=None,lon_max:Optional[float]=None,depth_min:Optional[float]=None,depth_max:Optional[float]=None,time_start:Optional[str]=None,time_end:Optional[str]=None):
  with open_dataset(file) as ds:
+  if variable not in ds.data_vars:raise HTTPException(404,detail=f"Variable '{variable}' not found")
   data=select(ds[variable],lat_min,lat_max,lon_min,lon_max,depth_min,depth_max,time_start,time_end)
   if data.size>50000:raise HTTPException(413,detail={'error':'Region is too large','number_of_values':int(data.size)})
   frame=data.to_dataframe(name=variable).reset_index().replace({np.nan:None});return {'file':file,'variable':variable,'dimensions':list(data.dims),'shape':list(data.shape),'data':frame.to_dict(orient='records')}
 @app.get('/data/region/array')
 def get_region_array(file:str,variable:str,lat_min:Optional[float]=None,lat_max:Optional[float]=None,lon_min:Optional[float]=None,lon_max:Optional[float]=None,depth_min:Optional[float]=None,depth_max:Optional[float]=None,time_start:Optional[str]=None,time_end:Optional[str]=None,stride:int=1):
  with open_dataset(file) as ds:
+  if variable not in ds.data_vars:raise HTTPException(404,detail=f"Variable '{variable}' not found")
   data=select(ds[variable],lat_min,lat_max,lon_min,lon_max,depth_min,depth_max,time_start,time_end);stride=max(1,min(stride,20))
   for dim in ('latitude','longitude','lat','lon'):
    if dim in data.dims and stride>1:data=data.isel({dim:slice(None,None,stride)})
